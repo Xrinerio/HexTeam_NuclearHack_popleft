@@ -3,7 +3,7 @@ import json
 import socket
 from typing import Any
 
-from app.core import logger, message_parser
+from app.core import logger, utils
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -302,7 +302,7 @@ class Server:
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
-                await message_parser(message, addr)
+                await utils.handle_message(message)
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")
