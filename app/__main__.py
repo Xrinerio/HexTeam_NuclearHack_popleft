@@ -1,9 +1,12 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
+from app.api import api
 from app.database import database
 from app.server import Server
 from app.settings import Settings
@@ -26,7 +29,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await tcp_server.stop_server()
 
 
-app = FastAPI(title="LAN Peer Discovery", lifespan=lifespan)
+app: FastAPI = FastAPI(title="P2P Chat", lifespan=lifespan)
+app.mount(
+    "/",
+    StaticFiles(directory=Path(__file__).parent / "static", html=True),
+)
+app.include_router(api)
 
 if __name__ == "__main__":
     uvicorn.run(
