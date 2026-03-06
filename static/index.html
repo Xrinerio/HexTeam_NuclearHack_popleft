@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN Peer Discovery</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 2rem;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #f0f6fc;
+        }
+
+        h2 {
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+            color: #8b949e;
+            font-weight: 500;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 110px 1fr;
+            gap: 0.35rem 1rem;
+        }
+
+        .info-grid .label {
+            color: #8b949e;
+        }
+
+        .info-grid .value {
+            color: #f0f6fc;
+            font-family: 'Consolas', 'Courier New', monospace;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            color: #8b949e;
+            font-weight: 500;
+            padding: 0.6rem 0.5rem;
+            border-bottom: 1px solid #30363d;
+            font-size: 0.85rem;
+        }
+
+        td {
+            padding: 0.55rem 0.5rem;
+            border-bottom: 1px solid #21262d;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        tr:hover td {
+            background: #1c2128;
+        }
+
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+
+        .dot.green {
+            background: #3fb950;
+            box-shadow: 0 0 4px #3fb95066;
+        }
+
+        .empty-msg {
+            color: #484f58;
+            padding: 1.5rem;
+            text-align: center;
+            font-style: italic;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0.75rem;
+            font-size: 0.78rem;
+            color: #484f58;
+        }
+
+        .ws-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>&#128269; LAN Peer Discovery</h1>
+
+    <div class="card">
+        <h2>This Node</h2>
+        <div class="info-grid">
+            <span class="label">Node ID</span> <span class="value"
+                id="me-id">&mdash;</span>
+            <span class="label">Name</span> <span class="value"
+                id="me-name">&mdash;</span>
+            <span class="label">IP</span> <span class="value"
+                id="me-ip">&mdash;</span>
+            <span class="label">Port</span> <span class="value"
+                id="me-port">&mdash;</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Discovered Peers <span id="peer-count" style="color:#58a6ff"></span>
+        </h2>
+        <div id="peers-container">
+            <p class="empty-msg">Searching for peers in the local
+                network&hellip;</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <span id="ws-status"><span class="ws-dot"
+                style="background:#484f58"></span>Connecting&hellip;</span>
+        <span id="update-time"></span>
+    </div>
+
+    <script>
+        // Загружаем информацию о текущем узле (один раз)
+        fetch("/api/me")
+            .then(r => r.json())
+            .then(me => {
+                document.getElementById("me-id").textContent = me.node_id;
+                document.getElementById("me-name").textContent = me.name;
+                document.getElementById("me-ip").textContent = me.ip;
+                document.getElementById("me-port").textContent = me.port;
+            });
+
+        function escapeHtml(str) {
+            const el = document.createElement("span");
+            el.textContent = str;
+            return el.innerHTML;
+        }
+
+        function formatLastSeen(ts) {
+            const sec = Math.floor(Date.now() / 1000 - ts);
+            if (sec < 2) return "just now";
+            return sec + "s ago";
+        }
+
+        function renderPeers(peers) {
+            const container = document.getElementById("peers-container");
+            const countEl = document.getElementById("peer-count");
+            countEl.textContent = peers.length ? "(" + peers.length + ")" : "";
+
+            if (!peers.length) {
+                container.innerHTML = '<p class="empty-msg">No peers found yet</p>';
+                return;
+            }
+
+            let html = "<table><thead><tr>" +
+                "<th></th><th>Name</th><th>Node ID</th><th>IP</th><th>Port</th><th>Last Seen</th>" +
+                "</tr></thead><tbody>";
+
+            for (const p of peers) {
+                html += "<tr>" +
+                    '<td><span class="dot green"></span></td>' +
+                    "<td>" + escapeHtml(p.name) + "</td>" +
+                    "<td>" + escapeHtml(p.node_id) + "</td>" +
+                    "<td>" + escapeHtml(p.ip) + "</td>" +
+                    "<td>" + p.port + "</td>" +
+                    "<td>" + formatLastSeen(p.last_seen) + "</td>" +
+                    "</tr>";
+            }
+            html += "</tbody></table>";
+            container.innerHTML = html;
+
+            document.getElementById("update-time").textContent =
+                "Updated: " + new Date().toLocaleTimeString();
+        }
+
+        // WebSocket с автоматическим переподключением
+        function connectWs() {
+            const proto = location.protocol === "https:" ? "wss:" : "ws:";
+            const ws = new WebSocket(proto + "//" + location.host + "/ws");
+            const statusEl = document.getElementById("ws-status");
+
+            ws.onopen = () => {
+                statusEl.innerHTML = '<span class="ws-dot" style="background:#3fb950"></span>Connected (WebSocket)';
+            };
+
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                renderPeers(data.peers || []);
+            };
+
+            ws.onclose = () => {
+                statusEl.innerHTML = '<span class="ws-dot" style="background:#f85149"></span>Disconnected — reconnecting&hellip;';
+                setTimeout(connectWs, 2000);
+            };
+
+            ws.onerror = () => ws.close();
+        }
+
+        connectWs();
+    </script>
+</body>
+
+</html>
