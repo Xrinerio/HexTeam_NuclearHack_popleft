@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from app.database import database
 from app.discovery import Discovery
 
 parser = argparse.ArgumentParser(description="LAN Peer Discovery")
@@ -26,6 +27,7 @@ discovery = Discovery(http_port=args.port)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    database.initialize_tables()
     await discovery.start()
     yield
     await discovery.stop()
