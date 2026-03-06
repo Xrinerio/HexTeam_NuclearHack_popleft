@@ -9,8 +9,9 @@ class Settings:
     DISCOVERY_PORT: int = 50000
     HELLO_INTERVAL: float = 2.0
     PEER_TIMEOUT: float = 8.0
-    HOST: str = "127.0.0.1"
     PORT: int = 6767
+    HOST: str = "0.0.0.0"
+    UVICORN_HOST: str = "127.0.0.1"
     UVICORN_PORT: int = 8001
     IDLE_TIMEOUT: float = 30.0
     DISCOVERY_INTERVAL: float = 3.0

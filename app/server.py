@@ -17,11 +17,13 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         name: str,
         discovery_interval: float,
         discovery_port: int,
+        server: "Server",
     ) -> None:
         self.peer_id = peer_id
         self.name = name
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
+        self.server = server
 
         self.transport: asyncio.DatagramTransport | None = None
 
@@ -58,7 +60,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         ).encode()
 
         if self.transport:
-            self.transport.sendto(response, addr)
+            self.transport.sendto(response, (addr[0], self.discovery_port))
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
@@ -175,12 +177,27 @@ class Server:
                 name=socket.gethostname(),
                 discovery_interval=self.discovery_interval,
                 discovery_port=self.discovery_port,
+                server=self,
             ),
             sock=udp_sock,
         )
 
+    @staticmethod
+    def _get_local_ips() -> list[str]:
+        """Возвращает все локальные не-loopback IPv4 адреса."""
+        ips: set[str] = set()
+        for info in socket.getaddrinfo(
+            socket.gethostname(),
+            None,
+            socket.AF_INET,
+        ):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+        return list(ips)
+
     async def _broadcast_loop(self) -> None:
-        """Периодически рассылает UDP hello всем в сети."""
+        """Периодически рассылает UDP hello через каждый сетевой интерфейс."""
         pkt = json.dumps(
             {
                 "type": "hello",
@@ -190,29 +207,53 @@ class Server:
             },
         ).encode()
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.bind(("", 0))
-        sock.setblocking(False)
-
         logger.debug("[UDP] _broadcast_loop started")
+        socks: list[socket.socket] = []
         try:
             while True:
-                try:
-                    await asyncio.get_running_loop().sock_sendto(
-                        sock,
-                        pkt,
-                        (self.broadcast_addr, self.discovery_port),
-                    )
-                    logger.debug("[UDP] Broadcast sent")
-                except OSError as e:
-                    logger.error(f"[UDP] Failed to send broadcast: {e}")
+                # пересоздаём сокеты каждый цикл — интерфейсы могут меняться
+                for s in socks:
+                    s.close()
+                socks.clear()
+
+                local_ips = self._get_local_ips()
+                if not local_ips:
+                    logger.warning("[UDP] No non-loopback interfaces found")
+                    await asyncio.sleep(self.discovery_interval)
+                    continue
+
+                loop = asyncio.get_running_loop()
+                for local_ip in local_ips:
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        sock.setsockopt(
+                            socket.SOL_SOCKET,
+                            socket.SO_BROADCAST,
+                            1,
+                        )
+                        sock.bind((local_ip, 0))
+                        sock.setblocking(False)
+                        socks.append(sock)
+
+                        await loop.sock_sendto(
+                            sock,
+                            pkt,
+                            (self.broadcast_addr, self.discovery_port),
+                        )
+                        logger.debug(
+                            f"[UDP] Broadcast sent via {local_ip}",
+                        )
+                    except OSError as e:
+                        logger.error(
+                            f"[UDP] Failed to send broadcast via {local_ip}: {e}",
+                        )
                 await asyncio.sleep(self.discovery_interval)
         except asyncio.CancelledError:
             logger.debug("[UDP] _broadcast_loop cancelled")
         finally:
-            sock.close()
-            logger.debug("[UDP] Broadcast socket closed")
+            for s in socks:
+                s.close()
+            logger.debug("[UDP] Broadcast sockets closed")
 
     async def _connect(self, addr: tuple) -> asyncio.StreamWriter | None:
         """Открыть TCP-соединение к addr по требованию."""
