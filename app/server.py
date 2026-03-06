@@ -1,7 +1,6 @@
 import asyncio
 import json
 import socket
-from collections.abc import Callable
 from typing import Any
 
 from app.core import logger
@@ -40,7 +39,8 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return
 
-        if pkt.get("type") != "hello":
+        msg_type = pkt.get("type")
+        if msg_type != "hello":
             return
 
         sender_id = pkt.get("peer_id")
@@ -53,17 +53,23 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        response = json.dumps(
-            {
-                "type": "hello",
-                "peer_id": self.peer_id,
-                "name": self.name,
-                "port": self.discovery_port,
-            },
-        ).encode()
+        self.server.peers[(addr[0], tcp_port)] = {
+            "peer_id": sender_id,
+            "name": name,
+        }
 
-        if self.transport:
-            self.transport.sendto(response, (addr[0], self.discovery_port))
+        # if msg_type == "hello":
+        #     response = json.dumps(
+        #         {
+        #             "type": "hello",
+        #             "peer_id": self.peer_id,
+        #             "name": self.name,
+        #             "port": self.discovery_port,
+        #         },
+        #     ).encode()
+
+        #     if self.transport:
+        #         self.transport.sendto(response, (addr[0], self.discovery_port))
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
