@@ -4,6 +4,8 @@ import socket
 import time
 import uuid
 
+from .peer import Peer
+
 BROADCAST_ADDR = "255.255.255.255"
 DISCOVERY_PORT = 50000
 HELLO_INTERVAL = 2.0
@@ -17,33 +19,6 @@ def get_local_ip() -> str:
             return str(s.getsockname()[0])
     except Exception:  # noqa: BLE001
         return "127.0.0.1"
-
-
-class Peer:
-    __slots__ = ("ip", "last_seen", "name", "node_id", "port")
-
-    def __init__(
-        self,
-        node_id: str,
-        name: str,
-        ip: str,
-        port: int,
-        last_seen: float,
-    ) -> None:
-        self.node_id = node_id
-        self.name = name
-        self.ip = ip
-        self.port = port
-        self.last_seen = last_seen
-
-    def to_dict(self) -> dict:
-        return {
-            "node_id": self.node_id,
-            "name": self.name,
-            "ip": self.ip,
-            "port": self.port,
-            "last_seen": self.last_seen,
-        }
 
 
 class Discovery:
