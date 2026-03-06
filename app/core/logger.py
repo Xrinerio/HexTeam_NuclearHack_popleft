@@ -1,9 +1,8 @@
 import logging
-from logging import Formatter, Logger, StreamHandler
+from logging import Formatter, StreamHandler
 from typing import TextIO
 
-logger: Logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger: logging.Logger = logging.getLogger("uvicorn.error")
 
 handler: StreamHandler[TextIO] = logging.StreamHandler()
 logger.addHandler(handler)
