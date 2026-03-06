@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P Chat</title>
+    <title>P2P Chat - Demo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -381,8 +381,8 @@
             <div class="header">
                 <h1>P2P Chat</h1>
                 <div class="status" id="ws-status">
-                    <span class="ws-dot"
-                        style="background:#6e7681"></span>Connecting...
+                    <span class="ws-dot" style="background:#58a6ff"></span>Demo
+                    Mode
                 </div>
             </div>
 
@@ -427,16 +427,78 @@
         let selectedPeer = null;
         let messages = {};
 
-        // Загрузка информации о себе
-        fetch("/api/me")
-            .then(r => r.json())
-            .then(me => {
-                myInfo = me;
-                document.getElementById("me-id").textContent = me.node_id.substring(0, 12);
-                document.getElementById("me-name").textContent = me.name;
-                document.getElementById("me-ip").textContent = me.ip;
-                document.getElementById("me-port").textContent = me.port;
-            });
+        // Фантомная информация о себе
+        myInfo = {
+            node_id: "a1b2c3d4e5f6",
+            name: "My PC",
+            ip: "192.168.1.100",
+            port: 8000
+        };
+        document.getElementById("me-id").textContent = myInfo.node_id.substring(0, 12);
+        document.getElementById("me-name").textContent = myInfo.name;
+        document.getElementById("me-ip").textContent = myInfo.ip;
+        document.getElementById("me-port").textContent = myInfo.port;
+
+        // Фантомные пиры
+        peers = [
+            {
+                node_id: "peer001alpha",
+                name: "Alice's Laptop",
+                ip: "192.168.1.101",
+                port: 8000,
+                last_seen: Math.floor(Date.now() / 1000) - 2
+            },
+            {
+                node_id: "peer002beta",
+                name: "Bob's Desktop",
+                ip: "192.168.1.102",
+                port: 8000,
+                last_seen: Math.floor(Date.now() / 1000) - 25
+            },
+            {
+                node_id: "peer003gamma",
+                name: "Charlie Server",
+                ip: "192.168.1.103",
+                port: 8000,
+                last_seen: Math.floor(Date.now() / 1000) - 120
+            },
+            {
+                node_id: "peer004delta",
+                name: "Dave's Phone",
+                ip: "192.168.1.104",
+                port: 8000,
+                last_seen: Math.floor(Date.now() / 1000) - 5
+            },
+            {
+                node_id: "peer005epsilon",
+                name: "Eve's Tablet",
+                ip: "192.168.1.105",
+                port: 8000,
+                last_seen: Math.floor(Date.now() / 1000) - 3600
+            }
+        ];
+
+        // Фантомные сообщения
+        messages = {
+            "peer001alpha": [
+                { peer_id: "peer001alpha", content: "Hey! How are you?", timestamp: Date.now() / 1000 - 3600, is_outgoing: false },
+                { peer_id: "peer001alpha", content: "Hi Alice! I'm doing great, thanks!", timestamp: Date.now() / 1000 - 3500, is_outgoing: true },
+                { peer_id: "peer001alpha", content: "That's awesome! Want to test this chat?", timestamp: Date.now() / 1000 - 3400, is_outgoing: false },
+                { peer_id: "peer001alpha", content: "Sure! It looks pretty nice 😊", timestamp: Date.now() / 1000 - 3300, is_outgoing: true }
+            ],
+            "peer002beta": [
+                { peer_id: "peer002beta", content: "Can you send me the project files?", timestamp: Date.now() / 1000 - 7200, is_outgoing: false },
+                { peer_id: "peer002beta", content: "Sure thing! I'll send them in a minute", timestamp: Date.now() / 1000 - 7100, is_outgoing: true }
+            ],
+            "peer003gamma": [
+                { peer_id: "peer003gamma", content: "Server status: All systems operational", timestamp: Date.now() / 1000 - 1800, is_outgoing: false },
+                { peer_id: "peer003gamma", content: "Thanks for the update!", timestamp: Date.now() / 1000 - 1750, is_outgoing: true },
+                { peer_id: "peer003gamma", content: "Backup completed successfully", timestamp: Date.now() / 1000 - 900, is_outgoing: false }
+            ]
+        };
+
+        // Отображаем фантомные данные
+        renderPeersList();
 
         // Экранирование HTML
         function escapeHtml(str) {
@@ -550,15 +612,11 @@
         }
 
         // Загрузка сообщений
-        async function loadMessages(peerId) {
-            try {
-                const res = await fetch(`/api/messages/${peerId}`);
-                const data = await res.json();
-                messages[peerId] = data;
-                renderMessages();
-            } catch (err) {
-                console.error("Failed to load messages:", err);
+        function loadMessages(peerId) {
+            if (!messages[peerId]) {
+                messages[peerId] = [];
             }
+            renderMessages();
         }
 
         // Рендер сообщений
@@ -590,70 +648,32 @@
         }
 
         // Отправка сообщения
-        async function sendMessage() {
+        function sendMessage() {
             if (!selectedPeer) return;
 
             const input = document.getElementById("chat-input");
             const content = input.value.trim();
             if (!content) return;
 
-            try {
-                await fetch("/api/messages", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        peer_id: selectedPeer.node_id,
-                        content: content
-                    })
-                });
-
-                input.value = "";
-                input.style.height = "auto";
-                loadMessages(selectedPeer.node_id);
-            } catch (err) {
-                console.error("Failed to send message:", err);
-                alert("Failed to send message");
+            // Добавляем сообщение в фантомные данные
+            if (!messages[selectedPeer.node_id]) {
+                messages[selectedPeer.node_id] = [];
             }
+            messages[selectedPeer.node_id].push({
+                peer_id: selectedPeer.node_id,
+                content: content,
+                timestamp: Date.now() / 1000,
+                is_outgoing: true
+            });
+            input.value = "";
+            input.style.height = "auto";
+            renderMessages();
         }
 
         // Поиск
         document.getElementById("search-input").addEventListener("input", (e) => {
             renderPeersList(e.target.value);
         });
-
-        // WebSocket
-        function connectWs() {
-            const proto = location.protocol === "https:" ? "wss:" : "ws:";
-            const ws = new WebSocket(proto + "//" + location.host + "/ws");
-            const statusEl = document.getElementById("ws-status");
-
-            ws.onopen = () => {
-                statusEl.innerHTML = '<span class="ws-dot" style="background:#3fb950"></span>Connected';
-            };
-
-            ws.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                peers = data.peers || [];
-                renderPeersList(document.getElementById("search-input").value);
-
-                // Обновить информацию о выбранном пире
-                if (selectedPeer) {
-                    const updated = peers.find(p => p.node_id === selectedPeer.node_id);
-                    if (updated) {
-                        selectedPeer = updated;
-                    }
-                }
-            };
-
-            ws.onclose = () => {
-                statusEl.innerHTML = '<span class="ws-dot" style="background:#f85149"></span>Disconnected';
-                setTimeout(connectWs, 2000);
-            };
-
-            ws.onerror = () => ws.close();
-        }
-
-        connectWs();
     </script>
 </body>
 
