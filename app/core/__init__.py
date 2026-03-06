@@ -1,3 +1,4 @@
+from . import utils
 from .logger import logger
 
-__all__ = ["logger", "parse_message"]
+__all__ = ["logger", "utils"]
