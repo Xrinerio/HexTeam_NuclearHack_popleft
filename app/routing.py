@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from app.core import logger
+
 _MAX_DISTANCE: int = 16
 
 
@@ -18,6 +20,7 @@ class _Route:
 class Routing:
     def __init__(self) -> None:
         self._table: dict[str, _Route] = {}
+        logger.info("Загружена таблица маршрутизации")
 
     def add_route(
         self,
