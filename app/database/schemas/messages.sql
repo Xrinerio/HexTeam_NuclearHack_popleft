@@ -4,3 +4,9 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+CREATE TABLE IF NOT EXISTS keys (
+    peer_id TEXT PRIMARY KEY NOT NULL UNIQUE,
+    public_key TEXT NOT NULL
+);
