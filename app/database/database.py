@@ -58,4 +58,4 @@ class Database:
             conn.executescript(schema)
 
 
-database = Database(db_path="ProDatabase.db")
+database = Database(db_path="Database.sqlite3")
