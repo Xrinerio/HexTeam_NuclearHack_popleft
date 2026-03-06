@@ -9,7 +9,9 @@ class Settings:
         self.HELLO_INTERVAL = 2.0
         self.PEER_TIMEOUT = 8.0
         self.HOST = "127.0.0.1"
+        self.PORT = 6767
         self.IDLE_TIMEOUT = 30.0
         self.DISCOVERY_INTERVAL = 3.0
+
 
 settings = Settings()
