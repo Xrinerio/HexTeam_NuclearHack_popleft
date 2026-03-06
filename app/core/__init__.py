@@ -1,5 +1,6 @@
 from . import utils
-from .handle import message_parser
+from . import message_parser
 from .logger import logger
+from .settings import Settings
 
-__all__ = ["logger", "message_parser", "utils"]
+__all__ = ["Settings", "logger", "message_parser", "utils"]
