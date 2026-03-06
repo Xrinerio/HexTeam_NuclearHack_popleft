@@ -61,6 +61,7 @@ ignore = [
     "CPY001", # Disable check for copyright notice
     "RUF001",
     "RUF002",
+    "C901",
 ]
 logger-objects = []
 preview = false
