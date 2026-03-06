@@ -12,20 +12,10 @@ HELLO_INTERVAL = 2.0
 PEER_TIMEOUT = 8.0
 
 
-def get_local_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return str(s.getsockname()[0])
-    except Exception:  # noqa: BLE001
-        return "127.0.0.1"
-
-
-class Discovery:
+class PeerDiscovery:
     def __init__(self, http_port: int = 8000) -> None:
         self.node_id = uuid.uuid4().hex[:12]
         self.name = socket.gethostname()
-        self.ip = get_local_ip()
         self.http_port = http_port
         self.peers: dict[str, Peer] = {}
         self.start_time = time.time()
@@ -49,7 +39,6 @@ class Discovery:
         self._send_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._tasks = [
             asyncio.create_task(self._sender()),
-            asyncio.create_task(self._receiver()),
             asyncio.create_task(self._cleaner()),
         ]
 
@@ -76,22 +65,6 @@ class Discovery:
             except OSError:
                 pass
             await asyncio.sleep(HELLO_INTERVAL)
-
-    async def _receiver(self) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", DISCOVERY_PORT))
-        sock.setblocking(False)  # noqa: FBT003
-
-        loop = asyncio.get_event_loop()
-        while self._running:
-            try:
-                data = await loop.sock_recv(sock, 4096)
-                self._handle_packet(data)
-            except Exception:  # noqa: BLE001
-                await asyncio.sleep(0.1)
-        sock.close()
 
     async def _cleaner(self) -> None:
         while self._running:
