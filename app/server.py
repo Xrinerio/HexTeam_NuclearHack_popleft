@@ -1,6 +1,7 @@
 import asyncio
 import json
 import socket
+from collections.abc import Callable
 from typing import Any
 
 from app.core import logger
@@ -17,11 +18,13 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         name: str,
         discovery_interval: float,
         discovery_port: int,
+        on_peer_discovered: "Callable[[tuple, dict], None] | None" = None,
     ) -> None:
         self.peer_id = peer_id
         self.name = name
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
+        self._on_peer_discovered = on_peer_discovered
 
         self.transport: asyncio.DatagramTransport | None = None
 
@@ -45,15 +48,22 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return  # игнорируем свои пакеты
 
         name = pkt.get("name", "?")
+        tcp_port = pkt.get("port")
         logger.info(
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
+
+        if self._on_peer_discovered:
+            self._on_peer_discovered(
+                addr, {"peer_id": sender_id, "name": name, "port": tcp_port},
+            )
 
         response = json.dumps(
             {
                 "type": "hello",
                 "peer_id": self.peer_id,
                 "name": self.name,
+                "port": self.discovery_port,
             },
         ).encode()
 
@@ -157,6 +167,11 @@ class Server:
             await self.server.wait_closed()
             logger.info("[Server] TCP server stopped")
 
+    def _on_peer_discovered(self, addr: tuple, info: dict) -> None:
+        """Callback вызывается из UDPBroadcastProtocol при обнаружении пира."""
+        self.peers[addr] = info
+        logger.info(f"[UDP] Peer registered: {addr} -> {info}")
+
     async def _start_udp_listener(self) -> None:
         loop = asyncio.get_running_loop()
         logger.debug(
@@ -166,7 +181,7 @@ class Server:
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        udp_sock.bind(("", self.discovery_port))
+        udp_sock.bind(("0.0.0.0", self.discovery_port))
         logger.debug(f"[UDP] Socket bound to port {self.discovery_port}")
 
         self._udp_transport, _ = await loop.create_datagram_endpoint(
@@ -175,6 +190,7 @@ class Server:
                 name=socket.gethostname(),
                 discovery_interval=self.discovery_interval,
                 discovery_port=self.discovery_port,
+                on_peer_discovered=self._on_peer_discovered,
             ),
             sock=udp_sock,
         )
@@ -190,29 +206,21 @@ class Server:
             },
         ).encode()
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.bind(("", 0))
-        sock.setblocking(False)
-
         logger.debug("[UDP] _broadcast_loop started")
         try:
             while True:
                 try:
-                    await asyncio.get_running_loop().sock_sendto(
-                        sock,
-                        pkt,
-                        (self.broadcast_addr, self.discovery_port),
-                    )
-                    logger.debug("[UDP] Broadcast sent")
+                    if self._udp_transport:
+                        self._udp_transport.sendto(
+                            pkt,
+                            (self.broadcast_addr, self.discovery_port),
+                        )
+                        logger.debug("[UDP] Broadcast sent")
                 except OSError as e:
                     logger.error(f"[UDP] Failed to send broadcast: {e}")
                 await asyncio.sleep(self.discovery_interval)
         except asyncio.CancelledError:
             logger.debug("[UDP] _broadcast_loop cancelled")
-        finally:
-            sock.close()
-            logger.debug("[UDP] Broadcast socket closed")
 
     async def _connect(self, addr: tuple) -> asyncio.StreamWriter | None:
         """Открыть TCP-соединение к addr по требованию."""
