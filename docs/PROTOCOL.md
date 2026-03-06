@@ -12,7 +12,8 @@
     "from": "<peer_id>",
     "to": "<peer_id>",
     "ttl": 16,
-    "payload": "...",
+    "sent": 1741267200,
+    "payload": "..."
 }
 ```
 

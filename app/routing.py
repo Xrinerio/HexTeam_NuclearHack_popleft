@@ -4,7 +4,7 @@ _MAX_DISTANCE: int = 16
 
 
 @dataclass
-class Route:
+class _Route:
     destination: str
     """peer_id цели."""
     gateway: str
@@ -17,7 +17,7 @@ class Route:
 
 class Routing:
     def __init__(self) -> None:
-        self._table: dict[str, Route] = {}
+        self._table: dict[str, _Route] = {}
 
     def add_route(
         self,
@@ -28,10 +28,10 @@ class Routing:
         hops: int,
     ) -> None:
         """Добавить или обновить маршрут."""
-        route: Route | None = self._table.get(destination)
+        route: _Route | None = self._table.get(destination)
 
         if route is None or hops < route.hops:
-            self._table[destination] = Route(
+            self._table[destination] = _Route(
                 destination=destination,
                 gateway=gateway,
                 ip=ip,
@@ -40,16 +40,16 @@ class Routing:
 
     def add_neighbor(self, *, destination: str, ip: str) -> None:
         """Добавить соседа."""
-        self._table[destination] = Route(
+        self._table[destination] = _Route(
             destination=destination,
             gateway=destination,
             ip=ip,
             hops=1,
         )
 
-    def get_route(self, destination: str, /) -> Route | None:
+    def get_route(self, destination: str, /) -> _Route | None:
         """Вернуть лучший маршрут до узла или None если недостижим."""
-        route: Route | None = self._table.get(destination)
+        route: _Route | None = self._table.get(destination)
 
         if route is not None and route.hops < _MAX_DISTANCE:
             return route
@@ -117,7 +117,7 @@ class Routing:
     #         if r.hops < self.INFINITY and r.gateway != to_node_id
     #     ]
 
-    def all_routes(self) -> list[Route]:
+    def all_routes(self) -> list[_Route]:
         return list(self._table.values())
 
     def __str__(self) -> str:
