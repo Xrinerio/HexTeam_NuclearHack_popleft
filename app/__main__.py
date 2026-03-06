@@ -39,7 +39,7 @@ app.include_router(api)
 if __name__ == "__main__":
     uvicorn.run(
         app,
-        host=Settings.HOST,
+        host=Settings.UVICORN_HOST,
         port=Settings.UVICORN_PORT,
         reload=False,
         log_level=10,
