@@ -2,6 +2,8 @@ import json
 import uuid
 from dataclasses import dataclass, field
 
+from app.core import utils
+
 from .type import Type
 
 
@@ -13,6 +15,7 @@ class Message:
     to: str
     ttl: int = 16
     payload: str
+    sent: int = field(default_factory=utils.now)
 
     def to_bytes(self) -> bytes:
         return json.dumps(
@@ -22,6 +25,7 @@ class Message:
                 "from": self.from_,
                 "to": self.to,
                 "ttl": self.ttl,
+                "sent": self.sent,
                 "payload": self.payload,
             },
         ).encode()
@@ -33,6 +37,7 @@ class Message:
             from_=d["from"],
             to=d["to"],
             ttl=d.get("ttl", 16),
+            sent=d["sent"],
             payload=d["payload"],
         )
         obj.id = d["id"]
