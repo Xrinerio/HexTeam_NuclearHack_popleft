@@ -8,12 +8,12 @@ from app.core import logger, parse_message
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
     def __init__(
         self,
-        node_id: str,
+        peer_id: str,
         name: str,
         discovery_interval: float,
         discovery_port: int,
     ) -> None:
-        self.node_id = node_id
+        self.peer_id = peer_id
         self.name = name
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
@@ -35,19 +35,19 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         if pkt.get("type") != "hello":
             return
 
-        sender_id = pkt.get("node_id")
-        if sender_id == self.node_id:
+        sender_id = pkt.get("peer_id")
+        if sender_id == self.peer_id:
             return  # игнорируем свои пакеты
 
         name = pkt.get("name", "?")
         logger.info(
-            f"[UDP] Broadcast from {addr}: node_id={sender_id}, name={name}",
+            f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
         response = json.dumps(
             {
                 "type": "hello",
-                "node_id": self.node_id,
+                "peer_id": self.peer_id,
                 "name": self.name,
                 "port": self.tcp_port,
             },
@@ -62,19 +62,19 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         logger.info("[UDP] Broadcast listener stopped")
 
 
-class TCPServer:
+class Server:
     def __init__(
         self,
         host: str,
         port: int,
-        node_id: str,
+        peer_id: str,
         discovery_interval: float,
         discovery_port: int,
         idle_timeout: float,
     ) -> None:
         self.host = host
         self.port = port
-        self.node_id = node_id
+        self.peer_id = peer_id
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
         self.idle_timeout = idle_timeout
@@ -84,7 +84,7 @@ class TCPServer:
         self._clients: dict[tuple, asyncio.StreamWriter] = {}
         # время последней активности: addr -> timestamp
         self._last_active: dict[tuple, float] = {}
-        # известные ноды из UDP discovery: addr -> {"node_id", "name"}
+        # известные ноды из UDP discovery: addr -> {"peer_id", "name"}
         self.peers: dict[tuple, dict] = {}
         self._tasks: list[asyncio.Task] = []
 
@@ -131,7 +131,7 @@ class TCPServer:
 
         self._udp_transport, _ = await loop.create_datagram_endpoint(
             lambda: UDPBroadcastProtocol(
-                node_id=self.node_id,
+                peer_id=self.peer_id,
                 name=socket.gethostname(),
                 tcp_port=self.port,
                 discovery_interval=self.discovery_interval,
@@ -145,7 +145,7 @@ class TCPServer:
         pkt = json.dumps(
             {
                 "type": "hello",
-                "node_id": self.node_id,
+                "peer_id": self.peer_id,
                 "name": socket.gethostname(),
                 "port": self.port,
             },

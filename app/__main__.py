@@ -6,8 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from app.database import database
-from app.discovery import Discovery
-from app.server import TCPServer
+from app.server import Server
 from app.settings import Settings
 
 parser = argparse.ArgumentParser(description="LAN Peer Discovery")
@@ -22,8 +21,7 @@ args, _ = parser.parse_known_args()
 
 
 settings = Settings()
-discovery = Discovery(http_port=args.port)
-tcp_server = TCPServer(host=settings.HOST, port=settings.PORT)
+tcp_server = Server(host=settings.HOST, port=settings.PORT)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -31,7 +29,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await tcp_server.start_server()
     yield
     await tcp_server.stop_server()
-    await discovery.stop()
 
 
 app = FastAPI(title="LAN Peer Discovery", lifespan=lifespan)
