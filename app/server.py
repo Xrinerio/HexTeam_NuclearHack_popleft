@@ -53,11 +53,6 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        if self._on_peer_discovered:
-            self._on_peer_discovered(
-                addr, {"peer_id": sender_id, "name": name, "port": tcp_port},
-            )
-
         response = json.dumps(
             {
                 "type": "hello",
@@ -166,11 +161,6 @@ class Server:
             self.server.close()
             await self.server.wait_closed()
             logger.info("[Server] TCP server stopped")
-
-    def _on_peer_discovered(self, addr: tuple, info: dict) -> None:
-        """Callback вызывается из UDPBroadcastProtocol при обнаружении пира."""
-        self.peers[addr] = info
-        logger.info(f"[UDP] Peer registered: {addr} -> {info}")
 
     async def _start_udp_listener(self) -> None:
         loop = asyncio.get_running_loop()
