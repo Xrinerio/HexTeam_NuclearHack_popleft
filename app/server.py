@@ -1,6 +1,7 @@
 import asyncio
 import json
 import socket
+from collections.abc import Callable
 from typing import Any
 
 from app.core import logger
@@ -47,15 +48,22 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return  # игнорируем свои пакеты
 
         name = pkt.get("name", "?")
+        tcp_port = pkt.get("port")
         logger.info(
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
+
+        if self._on_peer_discovered:
+            self._on_peer_discovered(
+                addr, {"peer_id": sender_id, "name": name, "port": tcp_port},
+            )
 
         response = json.dumps(
             {
                 "type": "hello",
                 "peer_id": self.peer_id,
                 "name": self.name,
+                "port": self.discovery_port,
             },
         ).encode()
 
@@ -159,6 +167,11 @@ class Server:
             await self.server.wait_closed()
             logger.info("[Server] TCP server stopped")
 
+    def _on_peer_discovered(self, addr: tuple, info: dict) -> None:
+        """Callback вызывается из UDPBroadcastProtocol при обнаружении пира."""
+        self.peers[addr] = info
+        logger.info(f"[UDP] Peer registered: {addr} -> {info}")
+
     async def _start_udp_listener(self) -> None:
         loop = asyncio.get_running_loop()
         logger.debug(
@@ -168,7 +181,7 @@ class Server:
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        udp_sock.bind(("", self.discovery_port))
+        udp_sock.bind(("0.0.0.0", self.discovery_port))
         logger.debug(f"[UDP] Socket bound to port {self.discovery_port}")
 
         self._udp_transport, _ = await loop.create_datagram_endpoint(
