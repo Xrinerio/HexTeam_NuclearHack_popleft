@@ -9,7 +9,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from discovery import Discovery
+from app.discovery import Discovery
 
 parser = argparse.ArgumentParser(description="LAN Peer Discovery")
 parser.add_argument(
