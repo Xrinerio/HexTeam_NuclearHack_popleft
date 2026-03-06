@@ -43,4 +43,28 @@
 }
 ```
 
-## 
+## PING
+
+Проверка доступности пира.
+
+```json
+{
+    "type": "PING",
+    "id": "<uuid>",
+    "from": "<peer_id>",
+}
+```
+
+## PONG
+
+Ответ доступности пира.
+
+```json
+{
+    "type": "PONG",
+    "ping_id": "<uuid_of_ping>",
+    "from": "<peer_id>"
+}
+```
+
+## TRACEROUTE
