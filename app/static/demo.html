@@ -371,6 +371,104 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        /* Модальное окно для ввода имени */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal-box {
+            background: #22252b;
+            border: 1px solid #2d3139;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-title {
+            font-size: 1.4rem;
+            color: #f0f6fc;
+            margin-bottom: 12px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .modal-subtitle {
+            font-size: 0.85rem;
+            color: #8b949e;
+            margin-bottom: 24px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1a1d23;
+            border: 1px solid #2d3139;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            margin-bottom: 20px;
+        }
+
+        .modal-input:focus {
+            border-color: #58a6ff;
+        }
+
+        .modal-input::placeholder {
+            color: #6e7681;
+        }
+
+        .modal-btn {
+            width: 100%;
+            padding: 12px 20px;
+            background: #58a6ff;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-btn:hover {
+            background: #79c0ff;
+            transform: translateY(-1px);
+        }
+
+        .modal-btn:active {
+            background: #4184e4;
+            transform: translateY(0);
+        }
+
+        .modal-btn:disabled {
+            background: #2d3139;
+            color: #6e7681;
+            cursor: not-allowed;
+            transform: none;
+        }
     </style>
 </head>
 
@@ -421,84 +519,151 @@
         </div>
     </div>
 
+    <!-- Модальное окно для ввода имени -->
+    <div class="modal-overlay hidden" id="name-modal">
+        <div class="modal-box">
+            <div class="modal-title">Welcome to P2P Chat</div>
+            <div class="modal-subtitle">Please enter your name to continue. This
+                will be visible to other peers in the network.</div>
+            <input type="text" class="modal-input" id="name-input"
+                placeholder="Your name" maxlength="50" autofocus>
+            <button class="modal-btn" id="name-submit">Continue</button>
+        </div>
+    </div>
+
     <script>
         let myInfo = null;
         let peers = [];
         let selectedPeer = null;
         let messages = {};
 
-        // Фантомная информация о себе
-        myInfo = {
-            node_id: "a1b2c3d4e5f6",
-            name: "My PC",
-            ip: "192.168.1.100",
-            port: 8000
-        };
-        document.getElementById("me-id").textContent = myInfo.node_id.substring(0, 12);
-        document.getElementById("me-name").textContent = myInfo.name;
-        document.getElementById("me-ip").textContent = myInfo.ip;
-        document.getElementById("me-port").textContent = myInfo.port;
+        // Функции для работы с именем пользователя
+        function getUserName() {
+            return localStorage.getItem('p2p_user_name');
+        }
 
-        // Фантомные пиры
-        peers = [
-            {
-                node_id: "peer001alpha",
-                name: "Alice's Laptop",
-                ip: "192.168.1.101",
-                port: 8000,
-                last_seen: Math.floor(Date.now() / 1000) - 2
-            },
-            {
-                node_id: "peer002beta",
-                name: "Bob's Desktop",
-                ip: "192.168.1.102",
-                port: 8000,
-                last_seen: Math.floor(Date.now() / 1000) - 25
-            },
-            {
-                node_id: "peer003gamma",
-                name: "Charlie Server",
-                ip: "192.168.1.103",
-                port: 8000,
-                last_seen: Math.floor(Date.now() / 1000) - 120
-            },
-            {
-                node_id: "peer004delta",
-                name: "Dave's Phone",
-                ip: "192.168.1.104",
-                port: 8000,
-                last_seen: Math.floor(Date.now() / 1000) - 5
-            },
-            {
-                node_id: "peer005epsilon",
-                name: "Eve's Tablet",
-                ip: "192.168.1.105",
-                port: 8000,
-                last_seen: Math.floor(Date.now() / 1000) - 3600
+        function setUserName(name) {
+            localStorage.setItem('p2p_user_name', name);
+        }
+
+        function showNameModal() {
+            const modal = document.getElementById('name-modal');
+            const input = document.getElementById('name-input');
+            const submitBtn = document.getElementById('name-submit');
+
+            modal.classList.remove('hidden');
+            input.focus();
+
+            const handleSubmit = () => {
+                const name = input.value.trim();
+                if (name) {
+                    setUserName(name);
+                    modal.classList.add('hidden');
+                    initializeDemo();
+                }
+            };
+
+            submitBtn.onclick = handleSubmit;
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSubmit();
+                }
+            };
+        }
+
+        // Проверка имени при загрузке
+        function checkUserName() {
+            const name = getUserName();
+            if (!name) {
+                showNameModal();
+                return false;
             }
-        ];
+            return true;
+        }
 
-        // Фантомные сообщения
-        messages = {
-            "peer001alpha": [
-                { peer_id: "peer001alpha", content: "Hey! How are you?", timestamp: Date.now() / 1000 - 3600, is_outgoing: false },
-                { peer_id: "peer001alpha", content: "Hi Alice! I'm doing great, thanks!", timestamp: Date.now() / 1000 - 3500, is_outgoing: true },
-                { peer_id: "peer001alpha", content: "That's awesome! Want to test this chat?", timestamp: Date.now() / 1000 - 3400, is_outgoing: false },
-                { peer_id: "peer001alpha", content: "Sure! It looks pretty nice 😊", timestamp: Date.now() / 1000 - 3300, is_outgoing: true }
-            ],
-            "peer002beta": [
-                { peer_id: "peer002beta", content: "Can you send me the project files?", timestamp: Date.now() / 1000 - 7200, is_outgoing: false },
-                { peer_id: "peer002beta", content: "Sure thing! I'll send them in a minute", timestamp: Date.now() / 1000 - 7100, is_outgoing: true }
-            ],
-            "peer003gamma": [
-                { peer_id: "peer003gamma", content: "Server status: All systems operational", timestamp: Date.now() / 1000 - 1800, is_outgoing: false },
-                { peer_id: "peer003gamma", content: "Thanks for the update!", timestamp: Date.now() / 1000 - 1750, is_outgoing: true },
-                { peer_id: "peer003gamma", content: "Backup completed successfully", timestamp: Date.now() / 1000 - 900, is_outgoing: false }
-            ]
-        };
+        // Инициализация демо
+        function initializeDemo() {
+            const userName = getUserName();
 
-        // Отображаем фантомные данные
-        renderPeersList();
+            // Фантомная информация о себе
+            myInfo = {
+                node_id: "a1b2c3d4e5f6",
+                name: userName,
+                ip: "192.168.1.100",
+                port: 8000
+            };
+            document.getElementById("me-id").textContent = myInfo.node_id.substring(0, 12);
+            document.getElementById("me-name").textContent = userName;
+            document.getElementById("me-ip").textContent = myInfo.ip;
+            document.getElementById("me-port").textContent = myInfo.port;
+
+            // Фантомные пиры
+            peers = [
+                {
+                    node_id: "peer001alpha",
+                    name: "Alice's Laptop",
+                    ip: "192.168.1.101",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 2
+                },
+                {
+                    node_id: "peer002beta",
+                    name: "Bob's Desktop",
+                    ip: "192.168.1.102",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 25
+                },
+                {
+                    node_id: "peer003gamma",
+                    name: "Charlie Server",
+                    ip: "192.168.1.103",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 120
+                },
+                {
+                    node_id: "peer004delta",
+                    name: "Dave's Phone",
+                    ip: "192.168.1.104",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 5
+                },
+                {
+                    node_id: "peer005epsilon",
+                    name: "Eve's Tablet",
+                    ip: "192.168.1.105",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 3600
+                }
+            ];
+
+            // Фантомные сообщения
+            messages = {
+                "peer001alpha": [
+                    { peer_id: "peer001alpha", content: "Hey! How are you?", timestamp: Date.now() / 1000 - 3600, is_outgoing: false },
+                    { peer_id: "peer001alpha", content: "Hi Alice! I'm doing great, thanks!", timestamp: Date.now() / 1000 - 3500, is_outgoing: true },
+                    { peer_id: "peer001alpha", content: "That's awesome! Want to test this chat?", timestamp: Date.now() / 1000 - 3400, is_outgoing: false },
+                    { peer_id: "peer001alpha", content: "Sure! It looks pretty nice 😊", timestamp: Date.now() / 1000 - 3300, is_outgoing: true }
+                ],
+                "peer002beta": [
+                    { peer_id: "peer002beta", content: "Can you send me the project files?", timestamp: Date.now() / 1000 - 7200, is_outgoing: false },
+                    { peer_id: "peer002beta", content: "Sure thing! I'll send them in a minute", timestamp: Date.now() / 1000 - 7100, is_outgoing: true }
+                ],
+                "peer003gamma": [
+                    { peer_id: "peer003gamma", content: "Server status: All systems operational", timestamp: Date.now() / 1000 - 1800, is_outgoing: false },
+                    { peer_id: "peer003gamma", content: "Thanks for the update!", timestamp: Date.now() / 1000 - 1750, is_outgoing: true },
+                    { peer_id: "peer003gamma", content: "Backup completed successfully", timestamp: Date.now() / 1000 - 900, is_outgoing: false }
+                ]
+            };
+
+            // Отображаем фантомные данные
+            renderPeersList();
+        }
+
+        // При загрузке страницы проверяем имя
+        if (checkUserName()) {
+            initializeDemo();
+        }
 
         // Экранирование HTML
         function escapeHtml(str) {

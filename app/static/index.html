@@ -371,6 +371,104 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        /* Модальное окно для ввода имени */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal-box {
+            background: #22252b;
+            border: 1px solid #2d3139;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-title {
+            font-size: 1.4rem;
+            color: #f0f6fc;
+            margin-bottom: 12px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .modal-subtitle {
+            font-size: 0.85rem;
+            color: #8b949e;
+            margin-bottom: 24px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1a1d23;
+            border: 1px solid #2d3139;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            margin-bottom: 20px;
+        }
+
+        .modal-input:focus {
+            border-color: #58a6ff;
+        }
+
+        .modal-input::placeholder {
+            color: #6e7681;
+        }
+
+        .modal-btn {
+            width: 100%;
+            padding: 12px 20px;
+            background: #58a6ff;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-btn:hover {
+            background: #79c0ff;
+            transform: translateY(-1px);
+        }
+
+        .modal-btn:active {
+            background: #4184e4;
+            transform: translateY(0);
+        }
+
+        .modal-btn:disabled {
+            background: #2d3139;
+            color: #6e7681;
+            cursor: not-allowed;
+            transform: none;
+        }
     </style>
 </head>
 
@@ -421,22 +519,94 @@
         </div>
     </div>
 
+    <!-- Модальное окно для ввода имени -->
+    <div class="modal-overlay hidden" id="name-modal">
+        <div class="modal-box">
+            <div class="modal-title">Welcome to P2P Chat</div>
+            <div class="modal-subtitle">Please enter your name to continue. This
+                will be visible to other peers in the network.</div>
+            <input type="text" class="modal-input" id="name-input"
+                placeholder="Your name" maxlength="50" autofocus>
+            <button class="modal-btn" id="name-submit">Continue</button>
+        </div>
+    </div>
+
     <script>
         let myInfo = null;
         let peers = [];
         let selectedPeer = null;
         let messages = {};
 
-        // Загрузка информации о себе
-        fetch("/api/me")
-            .then(r => r.json())
-            .then(me => {
-                myInfo = me;
-                document.getElementById("me-id").textContent = me.node_id.substring(0, 12);
-                document.getElementById("me-name").textContent = me.name;
-                document.getElementById("me-ip").textContent = me.ip;
-                document.getElementById("me-port").textContent = me.port;
-            });
+        // Функции для работы с именем пользователя
+        function getUserName() {
+            return localStorage.getItem('p2p_user_name');
+        }
+
+        function setUserName(name) {
+            localStorage.setItem('p2p_user_name', name);
+        }
+
+        function showNameModal() {
+            const modal = document.getElementById('name-modal');
+            const input = document.getElementById('name-input');
+            const submitBtn = document.getElementById('name-submit');
+
+            modal.classList.remove('hidden');
+            input.focus();
+
+            const handleSubmit = () => {
+                const name = input.value.trim();
+                if (name) {
+                    setUserName(name);
+                    modal.classList.add('hidden');
+                    initializeApp();
+                }
+            };
+
+            submitBtn.onclick = handleSubmit;
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSubmit();
+                }
+            };
+        }
+
+        // Проверка имени при загрузке
+        function checkUserName() {
+            const name = getUserName();
+            if (!name) {
+                showNameModal();
+                return false;
+            }
+            return true;
+        }
+
+        // Инициализация приложения
+        function initializeApp() {
+            const userName = getUserName();
+
+            // Загрузка информации о себе
+            fetch("/api/me")
+                .then(r => r.json())
+                .then(me => {
+                    myInfo = me;
+                    // Используем имя из localStorage вместо имени устройства
+                    myInfo.name = userName;
+                    document.getElementById("me-id").textContent = me.node_id.substring(0, 12);
+                    document.getElementById("me-name").textContent = userName;
+                    document.getElementById("me-ip").textContent = me.ip;
+                    document.getElementById("me-port").textContent = me.port;
+                });
+
+            // Запускаем WebSocket
+            connectWs();
+        }
+
+        // При загрузке страницы проверяем имя
+        if (checkUserName()) {
+            initializeApp();
+        }
 
         // Экранирование HTML
         function escapeHtml(str) {
@@ -652,8 +822,6 @@
 
             ws.onerror = () => ws.close();
         }
-
-        connectWs();
     </script>
 </body>
 
