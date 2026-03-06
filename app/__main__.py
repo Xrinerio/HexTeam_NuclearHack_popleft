@@ -1,4 +1,3 @@
-import argparse
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,24 +5,13 @@ import uvicorn
 from fastapi import FastAPI
 
 from app.database import database
-from app.server import TCPServer
+from app.server import Server
 from app.settings import settings
 
-parser = argparse.ArgumentParser(description="LAN Peer Discovery")
-parser.add_argument(
-    "--port",
-    "-p",
-    type=int,
-    default=settings.PORT,
-    help="HTTP server port",
-)
-args, _ = parser.parse_known_args()
-
-
-tcp_server = TCPServer(
+tcp_server = Server(
     host=settings.HOST,
-    port=args.port,
-    node_id=settings.NODE_ID,
+    port=settings.PORT,
+    peer_id=settings.PEER_ID,
     discovery_interval=settings.DISCOVERY_INTERVAL,
     discovery_port=settings.DISCOVERY_PORT,
     idle_timeout=settings.IDLE_TIMEOUT,
@@ -41,4 +29,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="LAN Peer Discovery", lifespan=lifespan)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=settings.HOST, port=args.port, reload=False)
+    uvicorn.run(
+        app, host=settings.HOST,
+        port=settings.UVICORN_PORT,
+        reload=False,
+    )
