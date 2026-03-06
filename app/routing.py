@@ -58,12 +58,9 @@ class Routing:
 
     def remove_routes_via(self, gateway: str, /) -> None:
         """Удалить все маршруты через упавший/отключившийся узел."""
-        stale = [
-            dest
-            for dest, route in self._table.items()
-            if route.gateway == gateway
-        ]
-        for dest in stale:
+        for dest in [
+            d for d, route in self._table.items() if route.gateway == gateway
+        ]:
             del self._table[dest]
 
     # def update_from_advertisement(
@@ -125,7 +122,7 @@ class Routing:
 
     def __str__(self) -> str:
         if not self._table:
-            return "Routing table is empty."
+            return "None"
 
         rows = sorted(self._table.values(), key=lambda r: r.hops)
 
