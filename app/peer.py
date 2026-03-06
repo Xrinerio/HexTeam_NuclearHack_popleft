@@ -1,6 +1,7 @@
-class Peer:
-    port: int = 6767
+_PORT: int = 6767
 
+
+class Peer:
     def __init__(
         self,
         peer_id: str,
