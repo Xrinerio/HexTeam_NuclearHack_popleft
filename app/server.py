@@ -1,8 +1,13 @@
 import asyncio
 import json
 import socket
+from typing import Any
 
-from app.core import logger, parse_message
+from app.core import logger
+
+
+async def _handle_message(message: str) -> None:
+    pass
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -20,7 +25,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
 
         self.transport: asyncio.DatagramTransport | None = None
 
-    def connection_made(self, transport: asyncio.DatagramTransport) -> None:
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = transport
         logger.info(
             f"UDP broadcast listener started on port {self.discovery_port}",
@@ -49,11 +54,11 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
                 "type": "hello",
                 "peer_id": self.peer_id,
                 "name": self.name,
-                "port": self.tcp_port,
             },
         ).encode()
 
-        self.transport.sendto(response, addr)
+        if self.transport:
+            self.transport.sendto(response, addr)
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
@@ -71,6 +76,7 @@ class Server:
         discovery_interval: float,
         discovery_port: int,
         idle_timeout: float,
+        broadcast_addr: str = "255.255.255.255",
     ) -> None:
         self.host = host
         self.port = port
@@ -78,6 +84,7 @@ class Server:
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
         self.idle_timeout = idle_timeout
+        self.broadcast_addr = broadcast_addr
         self.server: asyncio.AbstractServer | None = None
         self._udp_transport: asyncio.DatagramTransport | None = None
         # активные TCP соединения: addr -> writer
@@ -90,7 +97,7 @@ class Server:
 
     async def start_server(self) -> None:
         logger.info(
-            f"[Server] Starting TCP server on {self.host}:{self.port}..."
+            f"[Server] Starting TCP server on {self.host}:{self.port}...",
         )
         try:
             self.server = await asyncio.start_server(
@@ -101,30 +108,30 @@ class Server:
             )
         except OSError as e:
             logger.error(
-                f"[Server] Failed to bind TCP on {self.host}:{self.port} — {e}"
+                f"[Server] Failed to bind TCP on {self.host}:{self.port} — {e}",
             )
             raise
         addrs = ", ".join(str(s.getsockname()) for s in self.server.sockets)
         logger.info(f"[Server] TCP server running on {addrs}")
 
         logger.info(
-            f"[Server] Starting UDP listener on port {self.discovery_port}..."
+            f"[Server] Starting UDP listener on port {self.discovery_port}...",
         )
         try:
             await self._start_udp_listener()
         except OSError as e:
             logger.error(
-                f"[Server] Failed to bind UDP on port {self.discovery_port} — {e}"
+                f"[Server] Failed to bind UDP on port {self.discovery_port} — {e}",
             )
             raise
-        logger.info(f"[Server] UDP listener started")
+        logger.info("[Server] UDP listener started")
 
         self._tasks = [
             asyncio.create_task(self._broadcast_loop()),
             asyncio.create_task(self._idle_cleanup_loop()),
         ]
         logger.info(
-            "[Server] Background tasks started (_broadcast_loop, _idle_cleanup_loop)"
+            "[Server] Background tasks started (_broadcast_loop, _idle_cleanup_loop)",
         )
 
     async def stop_server(self) -> None:
@@ -139,7 +146,7 @@ class Server:
             logger.info("[Server] UDP listener stopped")
 
         logger.info(
-            f"[Server] Closing {len(self._clients)} active TCP connections..."
+            f"[Server] Closing {len(self._clients)} active TCP connections...",
         )
         for writer in list(self._clients.values()):
             writer.close()
@@ -153,7 +160,7 @@ class Server:
     async def _start_udp_listener(self) -> None:
         loop = asyncio.get_running_loop()
         logger.debug(
-            f"[UDP] Creating socket, binding to port {self.discovery_port}..."
+            f"[UDP] Creating socket, binding to port {self.discovery_port}...",
         )
 
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -185,6 +192,7 @@ class Server:
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind((self.broadcast_addr, 0))
         sock.setblocking(False)
 
         logger.debug("[UDP] _broadcast_loop started")
@@ -194,7 +202,7 @@ class Server:
                     await asyncio.get_running_loop().sock_sendto(
                         sock,
                         pkt,
-                        ("<broadcast>", self.discovery_port),
+                        (self.broadcast_addr, self.discovery_port),
                     )
                     logger.debug("[UDP] Broadcast sent")
                 except OSError as e:
@@ -216,7 +224,10 @@ class Server:
             task = asyncio.create_task(self.handle_request(reader, writer))
             self._tasks.append(task)
             logger.info(
-                f"[TCP] Connected to {addr} (total clients: {len(self._clients)})"
+                (
+                    f"[TCP] Connected to {addr}"
+                    f"(total clients: {len(self._clients)})"
+                ),
             )
         except OSError as e:
             logger.error(f"[TCP] Failed to connect to {addr}: {e}")
@@ -227,7 +238,13 @@ class Server:
     async def _idle_cleanup_loop(self) -> None:
         """Закрывает TCP-соединения, простаивающие дольше idle_timeout."""
         logger.debug(
-            f"[TCP] _idle_cleanup_loop started (timeout={self.idle_timeout}s, interval={self.idle_timeout / 2}s)"
+            (
+                (
+                    "[TCP] _idle_cleanup_loop started"
+                    f"(timeout={self.idle_timeout}s,"
+                    f"interval={self.idle_timeout / 2}s)"
+                ),
+            ),
         )
         try:
             while True:
@@ -237,7 +254,10 @@ class Server:
                     idle = now - self._last_active.get(addr, now)
                     if idle > self.idle_timeout:
                         logger.info(
-                            f"[TCP] Closing idle connection to {addr} (idle {idle:.1f}s)"
+                            (
+                                f"[TCP] Closing idle connection to {addr}"
+                                f"(idle {idle:.1f}s)"
+                            ),
                         )
                         writer = self._clients.pop(addr, None)
                         self._last_active.pop(addr, None)
@@ -264,7 +284,7 @@ class Server:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        addr = writer.get_extra_info("peername")
+        addr: tuple[Any, ...] = writer.get_extra_info("peername")
         self._clients[addr] = writer
         self._last_active[addr] = asyncio.get_event_loop().time()
         logger.info(f"[TCP] [+] Connected: {addr}")
@@ -286,7 +306,7 @@ class Server:
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
-                await parse_message(message, addr, self)
+                await _handle_message(message)
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")
