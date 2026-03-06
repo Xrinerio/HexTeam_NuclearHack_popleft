@@ -192,7 +192,7 @@ class Server:
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.bind((self.broadcast_addr, 0))
+        sock.bind(("", 0))
         sock.setblocking(False)
 
         logger.debug("[UDP] _broadcast_loop started")
