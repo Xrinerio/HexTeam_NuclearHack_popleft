@@ -1,18 +1,16 @@
 import uuid
+from dataclasses import dataclass
 
 
+@dataclass
 class Settings:
-    def __init__(self) -> None:
-        self.PEER_ID = uuid.uuid4().hex[:12]
-        self.BROADCAST_ADDR = "255.255.255.255"
-        self.DISCOVERY_PORT = 50000
-        self.HELLO_INTERVAL = 2.0
-        self.PEER_TIMEOUT = 8.0
-        self.HOST = "127.0.0.1"
-        self.PORT = 6767
-        self.UVICORN_PORT = 80
-        self.IDLE_TIMEOUT = 30.0
-        self.DISCOVERY_INTERVAL = 3.0
-
-
-settings = Settings()
+    PEER_ID: str = uuid.uuid4().hex[:12]
+    BROADCAST_ADDR: str = "255.255.255.255"
+    DISCOVERY_PORT: int = 50000
+    HELLO_INTERVAL: float = 2.0
+    PEER_TIMEOUT: float = 8.0
+    HOST: str = "127.0.0.1"
+    PORT: int = 6767
+    UVICORN_PORT: int = 8001
+    IDLE_TIMEOUT: float = 30.0
+    DISCOVERY_INTERVAL: float = 3.0

@@ -6,15 +6,15 @@ from fastapi import FastAPI
 
 from app.database import database
 from app.server import Server
-from app.settings import settings
+from app.settings import Settings
 
 tcp_server = Server(
-    host=settings.HOST,
-    port=settings.PORT,
-    peer_id=settings.PEER_ID,
-    discovery_interval=settings.DISCOVERY_INTERVAL,
-    discovery_port=settings.DISCOVERY_PORT,
-    idle_timeout=settings.IDLE_TIMEOUT,
+    host=Settings.HOST,
+    port=Settings.PORT,
+    peer_id=Settings.PEER_ID,
+    discovery_interval=Settings.DISCOVERY_INTERVAL,
+    discovery_port=Settings.DISCOVERY_PORT,
+    idle_timeout=Settings.IDLE_TIMEOUT,
 )
 
 
@@ -30,7 +30,8 @@ app = FastAPI(title="LAN Peer Discovery", lifespan=lifespan)
 
 if __name__ == "__main__":
     uvicorn.run(
-        app, host=settings.HOST,
-        port=settings.UVICORN_PORT,
+        app,
+        host=Settings.HOST,
+        port=Settings.UVICORN_PORT,
         reload=False,
     )
