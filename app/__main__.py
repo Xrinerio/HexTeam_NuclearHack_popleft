@@ -7,11 +7,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api import api
+from app.core import Settings
 from app.database import database
 from app.server import Server
-from app.settings import Settings
 
-tcp_server = Server(
+server: Server = Server(
     host=Settings.HOST,
     port=Settings.PORT,
     peer_id=Settings.PEER_ID,
@@ -24,9 +24,9 @@ tcp_server = Server(
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     database.initialize_tables()
-    await tcp_server.start_server()
+    await server.start_server()
     yield
-    await tcp_server.stop_server()
+    await server.stop_server()
 
 
 app: FastAPI = FastAPI(title="P2P Chat", lifespan=lifespan)
