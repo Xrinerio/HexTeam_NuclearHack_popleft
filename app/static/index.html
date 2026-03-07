@@ -575,6 +575,153 @@
             cursor: not-allowed;
             transform: none;
         }
+
+        /* Verification badge */
+        .verified-badge {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 6px;
+            font-size: 0.75rem;
+            color: #3fb950;
+            cursor: help;
+        }
+
+        .unverified-badge {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 6px;
+            font-size: 0.75rem;
+            color: #6e7681;
+            cursor: help;
+        }
+
+        /* Security button in chat header */
+        .security-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid #2d3139;
+            background: transparent;
+            color: #8b949e;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-left: 12px;
+        }
+
+        .security-btn:hover {
+            background: #2a2e35;
+            border-color: #3d4149;
+        }
+
+        .security-btn.verified {
+            color: #3fb950;
+            border-color: #238636;
+        }
+
+        .security-btn.verified:hover {
+            background: #0d2818;
+        }
+
+        /* Safety number modal */
+        .safety-modal .modal-box {
+            max-width: 400px;
+        }
+
+        .safety-number-display {
+            font-size: 2.2rem;
+            font-weight: 600;
+            color: #f0f6fc;
+            text-align: center;
+            padding: 24px;
+            background: #1a1d23;
+            border: 1px solid #2d3139;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            letter-spacing: 6px;
+            user-select: all;
+        }
+
+        .safety-hint {
+            font-size: 0.8rem;
+            color: #8b949e;
+            text-align: center;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .safety-status {
+            text-align: center;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+            padding: 8px;
+            border-radius: 6px;
+        }
+
+        .safety-status.is-verified {
+            color: #3fb950;
+            background: #0d2818;
+            border: 1px solid #238636;
+        }
+
+        .safety-status.not-verified {
+            color: #d29922;
+            background: #2a1f00;
+            border: 1px solid #9e6a03;
+        }
+
+        .verify-btn {
+            width: 100%;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .verify-btn.do-verify {
+            background: #238636;
+            color: #fff;
+        }
+
+        .verify-btn.do-verify:hover {
+            background: #2ea043;
+        }
+
+        .verify-btn.do-unverify {
+            background: #2d3139;
+            color: #f85149;
+        }
+
+        .verify-btn.do-unverify:hover {
+            background: #3d4149;
+        }
+
+        .safety-close-btn {
+            width: 100%;
+            padding: 10px;
+            background: transparent;
+            color: #8b949e;
+            border: 1px solid #2d3139;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace;
+            margin-top: 8px;
+            transition: all 0.15s;
+        }
+
+        .safety-close-btn:hover {
+            background: #2a2e35;
+        }
     </style>
 </head>
 
@@ -622,6 +769,26 @@
         </div>
     </div>
 
+    <!-- Модальное окно Safety Number -->
+    <div class="modal-overlay hidden safety-modal" id="safety-modal">
+        <div class="modal-box">
+            <div class="modal-title">Код безопасности</div>
+            <div class="modal-subtitle" id="safety-peer-label"></div>
+            <div class="safety-number-display" id="safety-number">— — — —</div>
+            <div class="safety-hint">
+                Сравните этот код с собеседником лично или по надёжному
+                каналу.<br>
+                Если коды совпадают — посредник (MITM) отсутствует.
+            </div>
+            <div class="safety-status not-verified" id="safety-status">Не
+                верифицирован</div>
+            <button class="verify-btn do-verify" id="verify-btn">Подтвердить
+                верификацию</button>
+            <button class="safety-close-btn"
+                id="safety-close-btn">Закрыть</button>
+        </div>
+    </div>
+
     <!-- Модальное окно для ввода имени -->
     <div class="modal-overlay hidden" id="name-modal">
         <div class="modal-box">
@@ -642,6 +809,7 @@
         let selectedPeer = null;
         let messages = {};
         let fileTransfers = {}; // peer_id -> [{file_id, filename, file_size, ...}]
+        let verifiedPeers = {}; // peer_id -> bool
         let ws = null;
 
         // WebSocket connection
@@ -813,8 +981,9 @@
                     const r = await fetch(`/api/messages/${chat.peer_id}`);
                     if (r.ok) messages[chat.peer_id] = await r.json();
                 }));
-                // Load file transfers
+                // Load file transfers and verification statuses
                 await loadFileTransfers();
+                await loadVerificationStatus();
                 rebuildChatPeers();
                 renderPeersList(document.getElementById("search-input").value);
             } catch (err) {
@@ -894,11 +1063,14 @@
             for (const peer of filtered) {
                 const active = selectedPeer && selectedPeer.node_id === peer.node_id ? "active" : "";
                 const dotClass = peer.online ? '' : 'offline';
+                const vBadge = verifiedPeers[peer.node_id]
+                    ? '<span class="verified-badge" title="Верифицирован">🛡️</span>'
+                    : '';
                 html += `
                     <div class="peer-item ${active}" data-peer-id="${escapeHtml(peer.node_id)}">
                         <div class="peer-name">
                             <span class="peer-status-dot ${dotClass}"></span>
-                            ${escapeHtml(peer.name)}
+                            ${escapeHtml(peer.name)}${vBadge}
                         </div>
                         <div class="peer-details">
                             ${escapeHtml(peer.node_id)}
@@ -939,9 +1111,18 @@
                 ? `${escapeHtml(selectedPeer.ip)}:${selectedPeer.port}`
                 : 'offline';
 
+            const isVerified = verifiedPeers[selectedPeer.node_id] || false;
+            const badgeHtml = isVerified
+                ? '<span class="verified-badge" title="Верифицирован">🛡️</span>'
+                : '';
+            const secBtnClass = isVerified ? 'security-btn verified' : 'security-btn';
+            const secBtnLabel = isVerified ? '🛡️ Верифицирован' : '🔓 Код безопасности';
+
             panel.innerHTML = `
                 <div class="chat-header">
-                    <div class="chat-header-name">${escapeHtml(selectedPeer.name)}</div>
+                    <div class="chat-header-name">${escapeHtml(selectedPeer.name)}${badgeHtml}
+                        <button class="${secBtnClass}" id="security-btn">${secBtnLabel}</button>
+                    </div>
                     <div class="chat-header-info">
                         ${escapeHtml(selectedPeer.node_id)} • ${statusText}
                     </div>
@@ -976,6 +1157,11 @@
             });
 
             sendBtn.addEventListener("click", sendMessage);
+
+            // Security button handler
+            document.getElementById('security-btn').addEventListener('click', () => {
+                openSafetyModal(selectedPeer.node_id);
+            });
 
             // File upload handlers
             const fileBtn = document.getElementById("file-btn");
@@ -1149,6 +1335,94 @@
             } catch (err) {
                 console.error("Failed to fetch peers:", err);
                 updateStatus('disconnected');
+            }
+        }
+
+        // ─── Verification / Safety Number ─────────────────────────
+
+        async function openSafetyModal(peerId) {
+            const modal = document.getElementById('safety-modal');
+            const numberEl = document.getElementById('safety-number');
+            const statusEl = document.getElementById('safety-status');
+            const verifyBtn = document.getElementById('verify-btn');
+            const closeBtn = document.getElementById('safety-close-btn');
+            const labelEl = document.getElementById('safety-peer-label');
+
+            const peerName = contactNames[peerId] || peerId.slice(0, 8);
+            labelEl.textContent = peerName;
+            numberEl.textContent = '...';
+            modal.classList.remove('hidden');
+
+            try {
+                const res = await fetch(`/api/auth/${encodeURIComponent(peerId)}`);
+                if (!res.ok) {
+                    numberEl.textContent = 'Нет ключа';
+                    statusEl.className = 'safety-status not-verified';
+                    statusEl.textContent = 'Обмен ключами не выполнен';
+                    verifyBtn.style.display = 'none';
+                    bindSafetyClose(closeBtn, modal);
+                    return;
+                }
+                const data = await res.json();
+                numberEl.textContent = data.display;
+                verifiedPeers[peerId] = data.verified;
+                updateSafetyUI(peerId, data.verified, statusEl, verifyBtn);
+            } catch (err) {
+                numberEl.textContent = 'Ошибка';
+                console.error(err);
+            }
+
+            verifyBtn.onclick = async () => {
+                const isNowVerified = verifiedPeers[peerId] || false;
+                const endpoint = isNowVerified ? 'unverify' : 'verify';
+                try {
+                    const res = await fetch(`/api/auth/${encodeURIComponent(peerId)}/${endpoint}`, { method: 'POST' });
+                    if (res.ok) {
+                        const result = await res.json();
+                        verifiedPeers[peerId] = result.verified;
+                        updateSafetyUI(peerId, result.verified, statusEl, verifyBtn);
+                        renderChat();
+                        renderPeersList(document.getElementById('search-input').value);
+                    }
+                } catch (err) {
+                    console.error('Verification error:', err);
+                }
+            };
+
+            bindSafetyClose(closeBtn, modal);
+        }
+
+        function bindSafetyClose(closeBtn, modal) {
+            closeBtn.onclick = () => modal.classList.add('hidden');
+            modal.onclick = (e) => {
+                if (e.target === modal) modal.classList.add('hidden');
+            };
+        }
+
+        function updateSafetyUI(peerId, verified, statusEl, verifyBtn) {
+            verifyBtn.style.display = '';
+            if (verified) {
+                statusEl.className = 'safety-status is-verified';
+                statusEl.textContent = '🛡️ Верифицирован';
+                verifyBtn.className = 'verify-btn do-unverify';
+                verifyBtn.textContent = 'Снять верификацию';
+            } else {
+                statusEl.className = 'safety-status not-verified';
+                statusEl.textContent = '⚠️ Не верифицирован';
+                verifyBtn.className = 'verify-btn do-verify';
+                verifyBtn.textContent = 'Подтвердить верификацию';
+            }
+        }
+
+        async function loadVerificationStatus() {
+            for (const peerId of Object.keys(contactNames)) {
+                try {
+                    const res = await fetch(`/api/auth/${encodeURIComponent(peerId)}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        verifiedPeers[peerId] = data.verified;
+                    }
+                } catch (_) { /* ignore */ }
             }
         }
 
