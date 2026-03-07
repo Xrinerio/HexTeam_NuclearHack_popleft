@@ -51,6 +51,7 @@ class Crypto:
 
     async def add_peer(self, peer_id: str, public_key: str) -> None:
         self.peers[peer_id] = PublicKey(self._b64d(public_key))
+        add_all_keys({peer_id: public_key})
 
     @staticmethod
     def _b64e(data: bytes) -> str:

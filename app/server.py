@@ -15,7 +15,6 @@ def _our_public_key_b64() -> str:
 
 
 async def _handle_peer_info(
-    server: "Server",
     message: dict,
     addr: tuple,
 ) -> None:
@@ -33,15 +32,6 @@ async def _handle_peer_info(
             gateway_port=port,
             routes=routes,
         )
-
-    if peer_id not in crypto.peers and crypto.public_key is not None:
-        kex = KeyExchange(
-            from_=server.peer_id,
-            to=peer_id,
-            public_key=_our_public_key_b64(),
-        )
-        await server.send(addr=addr, data=kex.to_bytes(), peer_id=peer_id)
-        logger.info(f"[Crypto] KEY_EXCHANGE sent to {peer_id}")
 
 
 async def _handle_key_exchange(server: "Server", message: dict) -> None:
@@ -111,7 +101,7 @@ async def _handle_message(
     msg_type = message.get("type")
 
     if msg_type == Type.PEER_INFO.value:
-        await _handle_peer_info(server, message, addr)
+        await _handle_peer_info(message, addr)
     elif msg_type == Type.KEY_EXCHANGE.value:
         await _handle_key_exchange(server, message)
     elif msg_type == Type.MESSAGE.value:
