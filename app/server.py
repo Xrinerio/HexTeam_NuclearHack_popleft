@@ -6,8 +6,15 @@ from typing import Any
 from app.core import logger
 
 
-async def _handle_message(message: str) -> None:
-    pass
+async def _handle_message(message: dict[str, Any]) -> None:
+    if message.get("type") == "peer_info":
+        peer_id = message.get("peer_id")
+        name = message.get("name")
+        port = message.get("port")
+        logger.info(
+            f"Received peer_info: peer_id={peer_id}, name={name}, port={port}",
+        )
+    # Здесь логика обработки входящих сообщений от других нod (tcp)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -48,15 +55,31 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return
 
         name = pkt.get("name", "?")
-        tcp_port = pkt.get("port")
         logger.info(
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        self.server.peers[addr[0], tcp_port] = {
-            "peer_id": sender_id,
-            "name": name,
-        }
+        # Тут начинается логика сохранения информации о пирах
+        # Cтруктура pkt:
+        # {
+        #     "type": "hello",        тип сообщения
+        #     "peer_id": sender_id,   uuid пира
+        #     "name": name,           hostname пира
+        #     "port": tcp_port,       tcp порт пира
+        # }
+
+        # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast.
+        self.server.send(
+            addr=(addr[0], pkt.get("port")),
+            data=json.dumps(
+                {
+                    "type": "peer_info",
+                    "peer_id": self.peer_id,
+                    "name": self.name,
+                    "port": self.server.port,
+                },
+            ),
+        )
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
@@ -204,7 +227,6 @@ class Server:
         socks: list[socket.socket] = []
         try:
             while True:
-                # пересоздаём сокеты каждый цикл — интерфейсы могут меняться
                 for s in socks:
                     s.close()
                 socks.clear()
@@ -332,10 +354,10 @@ class Server:
                 self._last_active[addr] = asyncio.get_event_loop().time()
 
                 try:
-                    message = data.decode("utf-8").strip()
-                except UnicodeDecodeError:
+                    message = json.loads(data.decode("utf-8").strip())
+                except (UnicodeDecodeError, json.JSONDecodeError):
                     logger.warning(
-                        f"[TCP] [{addr}] Invalid UTF-8 data received",
+                        f"[TCP] [{addr}] Invalid data received",
                     )
                     continue
 
