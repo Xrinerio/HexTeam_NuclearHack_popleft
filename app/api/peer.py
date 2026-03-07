@@ -19,7 +19,26 @@ class SendMessageRequest(BaseModel):
 
 @router.get("/peers")
 async def get_peers() -> list[dict]:
-    return routing.get_advertisement(to_node_id="")
+    """Получить список доступных пиров."""
+    routes = routing.get_advertisement(to_node_id="")
+    # Преобразуем данные маршрутизации в формат для фронтенда
+    peers_list = []
+    for route_info in routes:
+        destination = route_info.get("destination")
+        if not isinstance(destination, str):
+            continue
+        route = routing.get_route(destination)
+        if route:
+            peers_list.append(
+                {
+                    "node_id": route.destination,
+                    "name": route.name,
+                    "ip": route.ip or "unknown",
+                    "port": route.port,
+                    "hops": route.hops,
+                }
+            )
+    return peers_list
 
 
 @router.post("/send")
