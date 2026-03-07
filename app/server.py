@@ -99,10 +99,10 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             peer_id=sender_id,
         )
 
-    def error_received(self, exc: Exception) -> None:  # noqa: PLR6301
+    def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
 
-    def connection_lost(self, _: Exception | None) -> None:  # noqa: PLR6301
+    def connection_lost(self, _: Exception | None) -> None:
         logger.info("[UDP] Broadcast listener stopped")
 
 
@@ -219,7 +219,7 @@ class Server:
 
     @staticmethod
     def _get_local_ips() -> list[str]:
-        """Возвращает все локальные не-loopback IPv4 адреса."""  # noqa: DOC201
+        """Возвращает все локальные не-loopback IPv4 адреса."""
         ips: set[str] = set()
         for info in socket.getaddrinfo(
             socket.gethostname(),
@@ -290,7 +290,7 @@ class Server:
             logger.debug("[UDP] Broadcast sockets closed")
 
     async def _connect(self, addr: tuple) -> asyncio.StreamWriter | None:
-        """Открыть TCP-соединение к addr по требованию."""  # noqa: DOC201
+        """Открыть TCP-соединение к addr по требованию."""
         logger.info(f"[TCP] Connecting to {addr}...")
         try:
             reader, writer = await asyncio.open_connection(*addr)
