@@ -37,6 +37,7 @@ class Routing:
         route: _Route | None = self._table.get(destination)
 
         if route is None or hops < route.hops:
+            logger.info(f"Добавлен маршрут до {destination}")
             self._table[destination] = _Route(
                 destination=destination,
                 name=name,
@@ -47,6 +48,7 @@ class Routing:
 
     def add_neighbor(self, *, destination: str, name: str, ip: str) -> None:
         """Добавить соседа."""
+        logger.info(f"Добавлен сосед {destination}")
         self._table[destination] = _Route(
             destination=destination,
             name=name,
