@@ -301,10 +301,12 @@ class Server:
         udp_sock.bind(("0.0.0.0", self.discovery_port))
         logger.debug(f"[UDP] Socket bound to port {self.discovery_port}")
 
+        from app.core import Settings
+
         self._udp_transport, _ = await loop.create_datagram_endpoint(
             lambda: UDPBroadcastProtocol(
                 peer_id=self.peer_id,
-                name=socket.gethostname(),
+                name=Settings.USERNAME or socket.gethostname(),
                 discovery_interval=self.discovery_interval,
                 discovery_port=self.discovery_port,
                 server=self,
@@ -328,11 +330,13 @@ class Server:
 
     async def _broadcast_loop(self) -> None:
         """Периодически рассылает UDP hello через каждый сетевой интерфейс."""
+        from app.core import Settings
+
         pkt = json.dumps(
             {
                 "type": "HELLO",
                 "peer_id": self.peer_id,
-                "name": socket.gethostname(),
+                "name": Settings.USERNAME or socket.gethostname(),
                 "port": self.port,
             },
         ).encode()

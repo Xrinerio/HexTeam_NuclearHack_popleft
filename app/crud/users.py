@@ -33,3 +33,10 @@ def username_exists(username: str) -> bool:
         )
         is not None
     )
+
+
+def get_current_user() -> sqlite3.Row | None:
+    """Возвращает единственного локально зарегистрированного пользователя."""
+    return database.fetch_one(
+        "SELECT peer_id, username, created_at FROM users LIMIT 1",
+    )

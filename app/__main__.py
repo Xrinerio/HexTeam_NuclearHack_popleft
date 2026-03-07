@@ -8,14 +8,22 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import api
 from app.core import Settings
+from app.crud.users import get_current_user
 from app.crypto.crypto import crypto
 from app.database import database
 from app.server import Server
 
+# Инициализируем таблицы и загружаем identity до создания сервера
+database.initialize_tables()
+_user = get_current_user()
+if _user is not None:
+    Settings.PEER_ID = _user["peer_id"]
+    Settings.USERNAME = _user["username"]
+
 server: Server = Server(
     host=Settings.HOST,
     port=Settings.PORT,
-    peer_id=Settings.PEER_ID,
+    peer_id=Settings.PEER_ID or "",
     discovery_interval=Settings.DISCOVERY_INTERVAL,
     discovery_port=Settings.DISCOVERY_PORT,
     idle_timeout=Settings.IDLE_TIMEOUT,
@@ -25,7 +33,6 @@ server: Server = Server(
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await crypto.initialize()
-    database.initialize_tables()
     await server.start_server()
     app.state.server = server
     yield

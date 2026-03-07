@@ -1,11 +1,11 @@
-import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class Settings:
-    # Уникальный идентификатор пира, генерируется при каждом запуске. Нужно будет сохранять.
-    PEER_ID: str = str(uuid.uuid4())
+    # Идентификатор и имя текущего пира — загружаются из БД после регистрации.
+    PEER_ID: str | None = field(default=None)
+    USERNAME: str | None = field(default=None)
     # Main server settings
     PORT: int = 6767
     HOST: str = "0.0.0.0"
