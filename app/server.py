@@ -4,9 +4,11 @@ import json
 import socket
 from typing import Any
 
-from app.core import Settings, logger
+from app.core import Settings, logger, utils
+from app.crud.messages import mark_delivered, save_message
 from app.crypto.crypto import crypto
 from app.network import routing
+from app.network.ws_manager import ws_manager
 from app.protocol import Ack, KeyExchange, Type
 
 
@@ -100,7 +102,17 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
     )
     await server.send_to_peer(from_id, ack.to_bytes())
     logger.info(f"[ACK] Sent ACK for message {message_id} to {from_id}")
-    # deliver to chat (store in DB, push to WebSocket etc.)
+
+    # Store incoming message in DB and push to frontend via WebSocket
+    saved = save_message(
+        message_id=message_id,
+        from_peer_id=from_id,
+        to_peer_id=server.peer_id,
+        content=payload,
+        is_outgoing=False,
+        created_at=message.get("sent", utils.now()),
+    )
+    await ws_manager.broadcast("new_message", saved)
 
 
 async def _handle_ack(server: "Server", message: dict) -> None:
@@ -115,13 +127,19 @@ async def _handle_ack(server: "Server", message: dict) -> None:
             await server.send_to_peer(to_id, json.dumps(message).encode())
         else:
             logger.warning(
-                f"[ACK] TTL=0, dropping ACK for message {message_id}"
+                f"[ACK] TTL=0, dropping ACK for message {message_id}",
             )
         return
 
     logger.info(
         f"[ACK] Message {message_id} successfully delivered to {from_id}",
     )
+
+    # Mark message as delivered in DB and notify frontend
+    if mark_delivered(message_id):
+        await ws_manager.broadcast(
+            "message_delivered", {"message_id": message_id}
+        )
 
 
 async def _handle_message(
