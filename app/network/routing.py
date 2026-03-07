@@ -133,7 +133,7 @@ class Routing:
         ]
         for dest in stale:
             logger.info(
-                f"Удалён устаревший маршрут до {dest} (через {gateway})"
+                f"Удалён устаревший маршрут до {dest} (через {gateway})",
             )
             del self._table[dest]
 
@@ -171,16 +171,18 @@ class Routing:
         rows = sorted(self._table.values(), key=lambda r: r.hops)
 
         col_dest = max(len("Destination"), *(len(r.destination) for r in rows))
+        col_name = max(len("Name"), *(len(r.name) for r in rows))
         col_gateway = max(len("Gateway"), *(len(r.gateway) for r in rows))
         col_ip = max(len("IP"), *(len(r.ip or "-") for r in rows))
         col_hops = max(len("Hops"), *(len(str(r.hops)) for r in rows))
 
         sep = (
-            f"+{'-' * (col_dest + 2)}+{'-' * (col_gateway + 2)}+"
-            f"{'-' * (col_ip + 2)}+{'-' * (col_hops + 2)}+"
+            f"+{'-' * (col_dest + 2)}+{'-' * (col_name + 2)}+"
+            f"{'-' * (col_gateway + 2)}+{'-' * (col_ip + 2)}+{'-' * (col_hops + 2)}+"
         )
         header = (
             f"| {'Destination':<{col_dest}} "
+            f"| {'Name':<{col_name}} "
             f"| {'Gateway':<{col_gateway}} "
             f"| {'IP':<{col_ip}} "
             f"| {'Hops':<{col_hops}} |"
@@ -190,6 +192,7 @@ class Routing:
         lines.extend(
             [
                 f"| {r.destination:<{col_dest}} "
+                f"| {r.name:<{col_name}} "
                 f"| {r.gateway:<{col_gateway}} "
                 f"| {(r.ip or '-'):<{col_ip}} "
                 f"| {r.hops:<{col_hops}} |"
