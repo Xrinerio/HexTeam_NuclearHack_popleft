@@ -109,7 +109,7 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
     await crypto.add_peer(from_id, public_key_b64)
     if key_changed:
         logger.info(
-            f"[Crypto] Stored {'new' if existing is None else 'updated'} public key of {from_id}"
+            f"[Crypto] Stored {'new' if existing is None else 'updated'} public key of {from_id}",
         )
     else:
         logger.debug(f"[Crypto] Received unchanged public key of {from_id}")
@@ -176,7 +176,7 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
             )
             await server.send_to_peer(from_id, kex.to_bytes())
             logger.info(
-                f"[Crypto] Sent KEY_EXCHANGE to {from_id} after decrypt failure"
+                f"[Crypto] Sent KEY_EXCHANGE to {from_id} after decrypt failure",
             )
         return
 
@@ -361,7 +361,7 @@ async def _handle_file_chunk(server: "Server", message: dict) -> None:
             )
             await server.send_to_peer(chunk_from, kex.to_bytes())
             logger.info(
-                f"[Crypto] Sent KEY_EXCHANGE to {chunk_from} after file decrypt failure"
+                f"[Crypto] Sent KEY_EXCHANGE to {chunk_from} after file decrypt failure",
             )
         return
 
@@ -752,8 +752,12 @@ class Server:
             logger.debug("[TCP] _idle_cleanup_loop cancelled")
 
     async def _keepalive_loop(self) -> None:
-        """Периодически отправляет PEER_INFO прямым соседям по TCP, чтобы
-        соединения не закрывались из-за idle-timeout.
+        """Периодически отправляет PEER_INFO прямым соседям по уже открытым
+        TCP-соединениям, чтобы read-timeout на обеих сторонах не срабатывал.
+
+        Важно: используем _peer_ids (addr → peer_id), а не routing-таблицу —
+        это гарантирует запись в существующий TCP-сокет, а не в новое
+        соединение на server-port соседа.
         """
         interval = max(5.0, self.idle_timeout / 4)
         try:
@@ -761,8 +765,13 @@ class Server:
                 await asyncio.sleep(interval)
                 if not self.peer_id:
                     continue
-                for route in routing.all_routes():
-                    if route.hops != 1 or not route.ip or not route.port:
+                # Снимаем снимок, чтобы не итерироваться по изменяющемуся словарю
+                for addr, peer_id in list(self._peer_ids.items()):
+                    route = routing.get_route(peer_id)
+                    if route is None or route.hops != 1:
+                        continue
+                    writer = self._clients.get(addr)
+                    if writer is None or writer.is_closing():
                         continue
                     peer_info = json.dumps(
                         {
@@ -771,15 +780,20 @@ class Server:
                             "name": Settings.USERNAME,
                             "port": self.port,
                             "routes": routing.get_advertisement(
-                                to_node_id=route.destination,
+                                to_node_id=peer_id,
                             ),
                         },
                     ).encode()
+                    if not peer_info.endswith(b"\n"):
+                        peer_info += b"\n"
                     try:
-                        await self.send(
-                            addr=(route.ip, route.port),
-                            data=peer_info,
-                            peer_id=route.destination,
+                        writer.write(peer_info)
+                        await writer.drain()
+                        self._last_active[addr] = (
+                            asyncio.get_event_loop().time()
+                        )
+                        logger.debug(
+                            f"[Keepalive] Sent PEER_INFO to {peer_id} via {addr}"
                         )
                     except Exception:  # noqa: BLE001
                         pass
