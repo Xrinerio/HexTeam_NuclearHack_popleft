@@ -13,6 +13,5 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE TABLE IF NOT EXISTS keys (
     peer_id TEXT PRIMARY KEY NOT NULL UNIQUE,
-    public_key TEXT NOT NULL,
-    verified INTEGER NOT NULL DEFAULT 0
+    public_key TEXT NOT NULL
 );

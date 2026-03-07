@@ -2,7 +2,6 @@ import base64
 
 from fastapi import (
     APIRouter,
-    HTTPException,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -178,43 +177,6 @@ async def get_messages(peer_id: str) -> list[dict]:
 async def get_chats() -> list[dict]:
     """Return peer_ids with names that have message history."""
     return get_chat_peer_ids()
-
-
-@router.get("/auth/{peer_id}")
-async def get_safety_number(peer_id: str) -> dict:
-    """Return the safety number for verifying a peer's identity."""
-    try:
-        code = crypto.get_safety_number(peer_id)
-    except (KeyError, RuntimeError) as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return {
-        "peer_id": peer_id,
-        "safety_number": code,
-        "display": crypto.format_safety_number(code),
-        "verified": crypto.is_verified(peer_id),
-    }
-
-
-@router.post("/auth/{peer_id}/verify")
-async def verify_peer(peer_id: str) -> dict:
-    """Mark a peer as verified after out-of-band safety number comparison."""
-    if peer_id not in crypto.peers:
-        raise HTTPException(
-            status_code=404, detail="No key exchange with this peer"
-        )
-    crypto.mark_verified(peer_id)
-    return {"peer_id": peer_id, "verified": True}
-
-
-@router.post("/auth/{peer_id}/unverify")
-async def unverify_peer(peer_id: str) -> dict:
-    """Remove verification mark from a peer."""
-    if peer_id not in crypto.peers:
-        raise HTTPException(
-            status_code=404, detail="No key exchange with this peer"
-        )
-    crypto.mark_verified(peer_id, verified=False)
-    return {"peer_id": peer_id, "verified": False}
 
 
 @router.websocket("/ws")
