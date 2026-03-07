@@ -9,12 +9,12 @@ from .type import Type
 
 @dataclass
 class Message:
-    type: Type = field(default=Type.MESSAGE, init=False)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()), init=False)
     from_: str
     to: str
-    ttl: int = 16
     payload: str
+    type: Type = field(default=Type.MESSAGE, init=False)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()), init=False)
+    ttl: int = 16
     sent: int = field(default_factory=utils.now)
 
     def to_bytes(self) -> bytes:
