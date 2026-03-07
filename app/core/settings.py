@@ -14,7 +14,7 @@ class _Settings:
     UVICORN_HOST: str = field(
         default_factory=lambda: os.environ.get("UVICORN_HOST", "127.0.0.1"),
     )
-    UVICORN_PORT: int = 8001
+    UVICORN_PORT: int = 80
     # Время в секундах, после которого неактивный пир считается offline и удаляется из списка пиров.
     IDLE_TIMEOUT: float = 20.0
     # Интервал между отправкой UDP broadcast сообщений для обнаружения пиров.
