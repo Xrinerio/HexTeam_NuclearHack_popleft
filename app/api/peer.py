@@ -1,12 +1,20 @@
 import base64
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core import logger
+from app.crud.messages import get_chat_messages, save_message
 from app.crypto.crypto import crypto
 from app.network import routing
+from app.network.ws_manager import ws_manager
 from app.protocol import KeyExchange, Message
 
 router: APIRouter = APIRouter()
@@ -15,6 +23,11 @@ router: APIRouter = APIRouter()
 class SendMessageRequest(BaseModel):
     to: str
     payload: str
+
+
+class ChatMessageRequest(BaseModel):
+    peer_id: str
+    content: str
 
 
 @router.get("/peers")
@@ -36,7 +49,7 @@ async def get_peers() -> list[dict]:
                     "ip": route.ip or "unknown",
                     "port": route.port,
                     "hops": route.hops,
-                }
+                },
             )
     return peers_list
 
@@ -88,3 +101,73 @@ async def send_message(body: SendMessageRequest, request: Request) -> dict:
     await server.send_to_peer(body.to, msg.to_bytes())
     logger.info(f"[API] MESSAGE sent: id={msg.id} to={body.to}")
     return {"id": msg.id, "to": body.to, "encrypted": True}
+
+
+@router.post("/messages")
+async def send_chat_message(body: ChatMessageRequest, request: Request) -> dict:
+    server = request.app.state.server
+    peer_id = body.peer_id
+    content = body.content
+
+    if routing.get_route(peer_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"No route to peer {peer_id!r}"
+        )
+
+    if peer_id not in crypto.peers:
+        if (
+            routing.get_route(peer_id) is not None
+            and server.peer_id
+            and crypto.public_key is not None
+        ):
+            kex = KeyExchange(
+                from_=server.peer_id,
+                to=peer_id,
+                public_key=base64.b64encode(bytes(crypto.public_key)).decode(),
+            )
+            await server.send_to_peer(peer_id, kex.to_bytes())
+            logger.info(f"[API] KEY_EXCHANGE initiated to {peer_id}")
+        raise HTTPException(
+            status_code=202,
+            detail=f"No encryption key for peer {peer_id!r}. Key exchange initiated, retry shortly.",
+        )
+
+    raw = await crypto.encrypt_message_to(content.encode(), peer_id)
+    payload_b64 = base64.b64encode(raw).decode()
+
+    msg = Message(
+        from_=server.peer_id,
+        to=peer_id,
+        payload=payload_b64,
+        encrypted=True,
+    )
+    await server.send_to_peer(peer_id, msg.to_bytes())
+
+    saved = save_message(
+        message_id=msg.id,
+        from_peer_id=server.peer_id,
+        to_peer_id=peer_id,
+        content=content,
+        is_outgoing=True,
+        created_at=msg.sent,
+    )
+    await ws_manager.broadcast("new_message", saved)
+    logger.info(f"[API] Chat message sent: id={msg.id} to={peer_id}")
+    return saved
+
+
+@router.get("/messages/{peer_id}")
+async def get_messages(peer_id: str) -> list[dict]:
+    return get_chat_messages(peer_id)
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket) -> None:
+    await ws_manager.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws_manager.disconnect(ws)
