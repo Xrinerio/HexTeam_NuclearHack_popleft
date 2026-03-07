@@ -33,7 +33,6 @@ async def _handle_peer_info(
             gateway_port=port,
             routes=routes,
         )
-    logger.info(routing)
 
     if peer_id not in crypto.peers and crypto.public_key is not None:
         kex = KeyExchange(
@@ -179,7 +178,6 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             ip=addr[0],
             port=pkt.get("port", 0),
         )
-        logger.info(routing)
 
         # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast. # noqa: RUF003
         await self.server.send(
@@ -482,7 +480,7 @@ class Server:
             peer_id = self._peer_ids.get(addr)
             if peer_id is not None:
                 routing.remove_routes_via(peer_id)
-                logger.info(routing)
+            logger.info(routing)
             self._clients.pop(addr, None)
             self._peer_ids.pop(addr, None)
             self._last_active.pop(addr, None)
