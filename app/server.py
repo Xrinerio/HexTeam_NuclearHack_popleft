@@ -407,15 +407,6 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        # Тут начинается логика сохранения информации о близжайших пирах  # noqa: RUF003
-        # Cтруктура pkt:  # noqa: RUF003
-        #
-        #     "type": "hello",        тип сообщения
-        #     "peer_id": sender_id,   uuid пира
-        #     "name": name,           hostname пира
-        #     "port": tcp_port,       tcp порт пира
-        #
-
         routing.add_neighbor(
             destination=sender_id,
             name=name,
@@ -424,7 +415,6 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         )
         await _flush_buffer(self.server)
 
-        # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast. # noqa: RUF003
         await self.server.send(
             addr=(addr[0], pkt.get("port")),
             data=json.dumps(
