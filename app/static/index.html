@@ -705,9 +705,10 @@
                 const res = await fetch("/api/chats");
                 if (!res.ok) return;
                 const peerIds = await res.json();
-                for (const peerId of peerIds) {
-                    if (!messages[peerId]) messages[peerId] = [];
-                }
+                await Promise.all(peerIds.map(async (peerId) => {
+                    const r = await fetch(`/api/messages/${peerId}`);
+                    if (r.ok) messages[peerId] = await r.json();
+                }));
                 rebuildChatPeers();
                 renderPeersList(document.getElementById("search-input").value);
             } catch (err) {
