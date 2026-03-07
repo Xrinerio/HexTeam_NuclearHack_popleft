@@ -27,7 +27,8 @@ async def send_message(body: SendMessageRequest, request: Request) -> dict:
 
     if routing.get_route(body.to) is None:
         raise HTTPException(
-            status_code=404, detail=f"No route to peer {body.to!r}"
+            status_code=404,
+            detail=f"No route to peer {body.to!r}",
         )
 
     payload = body.payload
@@ -37,7 +38,7 @@ async def send_message(body: SendMessageRequest, request: Request) -> dict:
         logger.info(f"[API] Sending encrypted MESSAGE to {body.to}")
     else:
         logger.info(
-            f"[API] Sending plaintext MESSAGE to {body.to} (no key yet)"
+            f"[API] Sending plaintext MESSAGE to {body.to} (no key yet)",
         )
 
     msg = Message(from_=server.peer_id, to=body.to, payload=payload)

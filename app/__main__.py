@@ -34,11 +34,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app: FastAPI = FastAPI(title="P2P Chat", lifespan=lifespan)
+app.include_router(api)
 app.mount(
     "/",
     StaticFiles(directory=Path(__file__).parent / "static", html=True),
 )
-app.include_router(api)
 
 if __name__ == "__main__":
     uvicorn.run(
