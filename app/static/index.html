@@ -478,6 +478,63 @@
             background: #2ea043;
         }
 
+        /* Ping */
+        .peer-ping {
+            font-size: 0.7rem;
+            color: #8b949e;
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
+        .peer-ping.good {
+            color: #3fb950;
+        }
+
+        .peer-ping.medium {
+            color: #d29922;
+        }
+
+        .peer-ping.bad {
+            color: #f85149;
+        }
+
+        .peer-ping.pinging {
+            color: #8b949e;
+            font-style: italic;
+        }
+
+        .ping-btn {
+            padding: 4px 10px;
+            background: #2d3139;
+            color: #c9d1d9;
+            border: 1px solid #3d4149;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            margin-left: 8px;
+        }
+
+        .ping-btn:hover {
+            background: #3d4149;
+            border-color: #58a6ff;
+        }
+
+        .ping-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .chat-header-ping {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: #8b949e;
+            margin-left: 12px;
+        }
+
         /* Модальное окно для ввода имени */
         .modal-overlay {
             position: fixed;
@@ -642,6 +699,8 @@
         let selectedPeer = null;
         let messages = {};
         let fileTransfers = {}; // peer_id -> [{file_id, filename, file_size, ...}]
+        let pingResults = {};   // peer_id -> { rtt_ms, time_to_target_ms, time_from_target_ms }
+        let pingedPeers = new Set(); // peers already auto-pinged this session
         let ws = null;
 
         // WebSocket connection
@@ -894,11 +953,13 @@
             for (const peer of filtered) {
                 const active = selectedPeer && selectedPeer.node_id === peer.node_id ? "active" : "";
                 const dotClass = peer.online ? '' : 'offline';
+                const pingHtml = formatPingBadge(peer.node_id, peer.online);
                 html += `
                     <div class="peer-item ${active}" data-peer-id="${escapeHtml(peer.node_id)}">
                         <div class="peer-name">
                             <span class="peer-status-dot ${dotClass}"></span>
                             ${escapeHtml(peer.name)}
+                            ${pingHtml}
                         </div>
                         <div class="peer-details">
                             ${escapeHtml(peer.node_id)}
@@ -939,9 +1000,15 @@
                 ? `${escapeHtml(selectedPeer.ip)}:${selectedPeer.port}`
                 : 'offline';
 
+            const pingInfo = pingResults[selectedPeer.node_id];
+            const pingText = pingInfo ? `${pingInfo.rtt_ms} ms` : '';
+            const pingBtnHtml = selectedPeer.online
+                ? `<span class="chat-header-ping">${pingText ? '🏓 ' + escapeHtml(pingText) : ''}<button class="ping-btn" id="chat-ping-btn">Ping</button></span>`
+                : '';
+
             panel.innerHTML = `
                 <div class="chat-header">
-                    <div class="chat-header-name">${escapeHtml(selectedPeer.name)}</div>
+                    <div class="chat-header-name">${escapeHtml(selectedPeer.name)}${pingBtnHtml}</div>
                     <div class="chat-header-info">
                         ${escapeHtml(selectedPeer.node_id)} • ${statusText}
                     </div>
@@ -976,6 +1043,18 @@
             });
 
             sendBtn.addEventListener("click", sendMessage);
+
+            // Ping button handler
+            const pingBtn = document.getElementById("chat-ping-btn");
+            if (pingBtn) {
+                pingBtn.addEventListener("click", async () => {
+                    pingBtn.disabled = true;
+                    pingBtn.textContent = '...';
+                    await pingPeer(selectedPeer.node_id);
+                    renderChat();
+                    loadMessages(selectedPeer.node_id);
+                });
+            }
 
             // File upload handlers
             const fileBtn = document.getElementById("file-btn");
@@ -1145,11 +1224,60 @@
                     }
                 }
 
+                // Auto-ping new online peers
+                for (const peer of peers) {
+                    if (!pingedPeers.has(peer.node_id)) {
+                        pingedPeers.add(peer.node_id);
+                        pingPeer(peer.node_id);
+                    }
+                }
+                // Clean up pingedPeers for peers that went offline
+                for (const pid of pingedPeers) {
+                    if (!peers.some(p => p.node_id === pid)) {
+                        pingedPeers.delete(pid);
+                        delete pingResults[pid];
+                    }
+                }
+
                 updateStatus('connected');
             } catch (err) {
                 console.error("Failed to fetch peers:", err);
                 updateStatus('disconnected');
             }
+        }
+
+        // ─── Ping Functions ─────────────────────────────────────────
+
+        function formatPingBadge(peerId, online) {
+            if (!online) return '';
+            const p = pingResults[peerId];
+            if (!p) return '<span class="peer-ping pinging">ping...</span>';
+            const ms = p.rtt_ms;
+            let cls = 'good';
+            if (ms > 500) cls = 'bad';
+            else if (ms > 150) cls = 'medium';
+            return `<span class="peer-ping ${cls}">${ms} ms</span>`;
+        }
+
+        async function pingPeer(peerId) {
+            try {
+                const res = await fetch("/api/ping", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ peer_id: peerId }),
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    pingResults[peerId] = data;
+                } else {
+                    delete pingResults[peerId];
+                }
+            } catch (err) {
+                console.error(`Ping failed for ${peerId}:`, err);
+                delete pingResults[peerId];
+            }
+            // Refresh peer list to update badge
+            renderPeersList(document.getElementById("search-input").value);
         }
 
         // ─── File Transfer Functions ────────────────────────────────
