@@ -32,16 +32,23 @@ async def send_message(body: SendMessageRequest, request: Request) -> dict:
         )
 
     payload = body.payload
-    if body.to in crypto.peers:
-        encrypted = await crypto.encrypt_message_to(payload.encode(), body.to)
-        payload = base64.b64encode(encrypted).decode()
-        logger.info(f"[API] Sending encrypted MESSAGE to {body.to}")
-    else:
-        logger.info(
-            f"[API] Sending plaintext MESSAGE to {body.to} (no key yet)",
+    if body.to not in crypto.peers:
+        raise HTTPException(
+            status_code=503,
+            detail=f"No encryption key for peer {body.to!r}. Key exchange in progress.",
         )
 
-    msg = Message(from_=server.peer_id, to=body.to, payload=payload)
+    raw = await crypto.encrypt_message_to(payload.encode(), body.to)
+    payload = base64.b64encode(raw).decode()
+    logger.info(f"[API] Sending encrypted MESSAGE to {body.to}")
+
+    msg = Message(
+        from_=server.peer_id,
+        to=body.to,
+        payload=payload,
+        encrypted=True,
+    )
     await server.send_to_peer(body.to, msg.to_bytes())
     logger.info(f"[API] MESSAGE sent: id={msg.id} to={body.to}")
-    return {"id": msg.id, "to": body.to, "encrypted": body.to in crypto.peers}
+    return {"id": msg.id, "to": body.to, "encrypted": True}
+    return {"id": msg.id, "to": body.to, "encrypted": True}

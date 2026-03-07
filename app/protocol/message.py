@@ -16,6 +16,7 @@ class Message:
     id: str = field(default_factory=lambda: str(uuid.uuid4()), init=False)
     ttl: int = 16
     sent: int = field(default_factory=utils.now)
+    encrypted: bool = False
 
     def to_bytes(self) -> bytes:
         return json.dumps(
@@ -26,6 +27,7 @@ class Message:
                 "to": self.to,
                 "ttl": self.ttl,
                 "sent": self.sent,
+                "encrypted": self.encrypted,
                 "payload": self.payload,
             },
         ).encode()
@@ -39,6 +41,7 @@ class Message:
             ttl=d.get("ttl", 16),
             sent=d["sent"],
             payload=d["payload"],
+            encrypted=d.get("encrypted", False),
         )
         obj.id = d["id"]
         return obj

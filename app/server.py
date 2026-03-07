@@ -15,7 +15,9 @@ def _our_public_key_b64() -> str:
 
 
 async def _handle_peer_info(
-    server: "Server", message: dict, addr: tuple
+    server: "Server",
+    message: dict,
+    addr: tuple,
 ) -> None:
     peer_id = message.get("peer_id")
     name = message.get("name", "?")
@@ -83,20 +85,22 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
             logger.warning(f"[MSG] TTL=0, dropping id={message.get('id')}")
         return
 
-    if from_id in crypto.peers:
-        try:
-            decrypted = await crypto.decrypt_message_from(
-                base64.b64decode(payload.encode()),
-                from_id,
-            )
-            payload = decrypted.decode("utf-8")
-            logger.info(f"[Crypto] Decrypted from {from_id}: {payload}")
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                f"[Crypto] Decrypt failed from {from_id}, treating as plaintext"
-            )
-    else:
-        logger.info(f"[MSG] Plaintext from {from_id}: {payload}")
+    if not message.get("encrypted", False):
+        logger.warning(f"[MSG] Dropping unencrypted message from {from_id}")
+        return
+
+    try:
+        decrypted = await crypto.decrypt_message_from(
+            base64.b64decode(payload.encode()),
+            from_id,
+        )
+        payload = decrypted.decode("utf-8")
+        logger.info(f"[Crypto] Decrypted from {from_id}: {payload}")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            f"[Crypto] Decrypt failed from {from_id}, dropping message",
+        )
+        return
     # deliver to chat (store in DB, push to WebSocket etc.)
 
 
