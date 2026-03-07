@@ -79,7 +79,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
                     "type": Type.PEER_INFO.value,
                     "from": self.peer_id,
                     "tcp_port": self.server.port,
-                    "routes": ...,
+                    "routes": [],
                 },
             ),
         )

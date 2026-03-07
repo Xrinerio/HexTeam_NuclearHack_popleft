@@ -8,4 +8,4 @@ class Type(Enum):
     ACK = "ACK"
     ROUTES = "ROUTES"
     HELLO = "HELLO"
-    PEER_INFO = ""
+    PEER_INFO = "PEER_INFO"
