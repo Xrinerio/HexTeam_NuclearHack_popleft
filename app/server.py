@@ -27,7 +27,8 @@ from app.crud.messages import (
 )
 from app.crud.users import save_peer_name
 from app.crypto.crypto import crypto
-from app.network import buffer, routing
+from app.network import routing
+from app.network.buffer import buffer
 from app.network.ws_manager import ws_manager
 from app.protocol import Ack, FileAck, FileChunk, KeyExchange, Message, Type
 
