@@ -72,7 +72,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
 
         name = pkt.get("name", "?")
         logger.info(
-            f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}"
+            f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
         # Тут начинается логика сохранения информации о близжайших пирах  # noqa: RUF003
@@ -96,6 +96,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
                     "routes": routing.get_advertisement(to_node_id=sender_id),
                 },
             ),
+            peer_id=sender_id,
         )
 
     def error_received(self, exc: Exception) -> None:  # noqa: PLR6301
@@ -126,6 +127,7 @@ class Server:
         self.server: asyncio.AbstractServer | None = None
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._clients: dict[tuple, asyncio.StreamWriter] = {}
+        self._peer_ids: dict[tuple, str] = {}
         self._last_active: dict[tuple, float] = {}
         self._tasks: list[asyncio.Task] = []
 
@@ -185,6 +187,7 @@ class Server:
         for writer in list(self._clients.values()):
             writer.close()
         self._clients.clear()
+        self._peer_ids.clear()
 
         if self.server:
             self.server.close()
@@ -313,27 +316,25 @@ class Server:
                 for addr in list(self._clients):
                     idle = now - self._last_active.get(addr, now)
                     if idle > self.idle_timeout:
+                        routing.remove_routes_via(self._peer_ids.get(addr))
                         writer = self._clients.pop(addr, None)
+                        self._peer_ids.pop(addr, None)
                         self._last_active.pop(addr, None)
                         if writer and not writer.is_closing():
                             writer.close()
         except asyncio.CancelledError:
             logger.debug("[TCP] _idle_cleanup_loop cancelled")
 
-    async def send(self, addr: tuple, data: str | bytes) -> None:
+    async def send(self, addr: tuple, data: str | bytes, peer_id: str) -> None:
         """Отправить данные ноде. Соединение создаётся по требованию."""
-        logger.info("0")
         writer = self._clients.get(addr)
-        logger.info("1")
         if writer is None or writer.is_closing():
             writer = await self._connect(addr)
-        logger.info("2")
         if writer is None:
             return
-        logger.info("3")
+        self._peer_ids[addr] = peer_id
         if isinstance(data, str):
             data = data.encode()
-        logger.info("4")
         writer.write(data)
         await writer.drain()
         self._last_active[addr] = asyncio.get_event_loop().time()
@@ -373,6 +374,7 @@ class Server:
             logger.error(f"[TCP] [{addr}] OS error: {e}")
         finally:
             self._clients.pop(addr, None)
+            self._peer_ids.pop(addr, None)
             self._last_active.pop(addr, None)
             logger.info(f"[TCP] [-] Disconnected: {addr}")
             writer.close()
