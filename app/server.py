@@ -225,10 +225,14 @@ async def _handle_file_chunk(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(
-                to_id,
-                json.dumps(message).encode(),
-            )
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered FILE_CHUNK",
+                )
         return
 
     if not message.get("encrypted"):
@@ -321,10 +325,14 @@ async def _handle_file_ack(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(
-                to_id,
-                json.dumps(message).encode(),
-            )
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered FILE_ACK",
+                )
         return
 
     logger.info(
