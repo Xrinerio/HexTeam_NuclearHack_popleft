@@ -12,8 +12,9 @@ from app.crud.messages import (
     mark_delivered,
     save_message,
 )
+from app.crud.users import save_peer_name
 from app.crypto.crypto import crypto
-from app.network import routing
+from app.network import buffer, routing
 from app.network.ws_manager import ws_manager
 from app.protocol import Ack, KeyExchange, Message, Type
 
@@ -23,6 +24,7 @@ def _our_public_key_b64() -> str:
 
 
 async def _handle_peer_info(
+    server: "Server",
     message: dict,
     addr: tuple,
 ) -> None:
@@ -34,8 +36,6 @@ async def _handle_peer_info(
     routing.add_neighbor(destination=peer_id, name=name, ip=ip, port=port)
 
     # Persist peer name in users table
-    from app.crud.users import save_peer_name
-
     if peer_id and name:
         save_peer_name(peer_id, name)
 
@@ -48,6 +48,20 @@ async def _handle_peer_info(
             routes=routes,
         )
 
+    await _flush_buffer(server)
+
+
+async def _flush_buffer(server: "Server") -> None:
+    """Отправляет буферизованные пакеты для появившихся маршрутов."""
+    for destination in buffer.get_pending_destinations():
+        if routing.get_next_hop_addr(destination) is not None:
+            packets = buffer.pop_all(destination)
+            for data in packets:
+                await server.send_to_peer(destination, data)
+            logger.info(
+                f"[Buffer] Flushed {len(packets)} packet(s) to {destination}",
+            )
+
 
 async def _handle_key_exchange(server: "Server", message: dict) -> None:
     from_id = message.get("from")
@@ -58,7 +72,14 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(to_id, json.dumps(message).encode())
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered KEY_EXCHANGE",
+                )
         return
 
     first_contact = from_id not in crypto.peers
@@ -84,7 +105,14 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(to_id, json.dumps(message).encode())
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered MESSAGE",
+                )
         else:
             logger.warning(f"[MSG] TTL=0, dropping id={message.get('id')}")
         return
@@ -137,7 +165,14 @@ async def _handle_ack(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(to_id, json.dumps(message).encode())
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered ACK",
+                )
         else:
             logger.warning(
                 f"[ACK] TTL=0, dropping ACK for message {message_id}",
@@ -164,7 +199,7 @@ async def _handle_message(
     msg_type = message.get("type")
 
     if msg_type == Type.PEER_INFO.value:
-        await _handle_peer_info(message, addr)
+        await _handle_peer_info(server, message, addr)
     elif msg_type == Type.KEY_EXCHANGE.value:
         await _handle_key_exchange(server, message)
     elif msg_type == Type.MESSAGE.value:
@@ -229,6 +264,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             ip=addr[0],
             port=pkt.get("port", 0),
         )
+        await _flush_buffer(self.server)
 
         # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast. # noqa: RUF003
         await self.server.send(
@@ -568,7 +604,7 @@ class Server:
                     writer = await self._connect(addr)
                 if writer is None:
                     msg = f"Cannot connect to {addr}"
-                    raise OSError(msg)
+                    raise OSError(msg)  # noqa: TRY301
                 self._peer_ids[addr] = peer_id
                 writer.write(data)
                 await writer.drain()
