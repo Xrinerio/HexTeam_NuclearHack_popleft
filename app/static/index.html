@@ -182,6 +182,11 @@
             box-shadow: 0 0 4px #3fb95066;
         }
 
+        .peer-status-dot.offline {
+            background: #6e7681;
+            box-shadow: none;
+        }
+
         .peer-details {
             font-size: 0.7rem;
             color: #8b949e;
@@ -547,7 +552,8 @@
 
     <script>
         let myInfo = null;
-        let peers = [];
+        let peers = [];       // live peers from routing
+        let chatPeers = [];   // merged: live + peers with message history
         let selectedPeer = null;
         let messages = {};
         let ws = null;
@@ -586,6 +592,9 @@
                 if (!messages[peerId].some(m => m.message_id === data.message_id)) {
                     messages[peerId].push(data);
                 }
+                // Ensure this peer appears in chat list
+                rebuildChatPeers();
+                renderPeersList(document.getElementById("search-input").value);
                 if (selectedPeer && selectedPeer.node_id === peerId) {
                     renderMessages();
                 }
@@ -683,10 +692,27 @@
             document.getElementById("me-id").textContent = userData.peer_id;
             document.getElementById("me-name").textContent = userData.username;
 
+            // Загружаем историю чатов, чтобы оффлайн-диалоги появились сразу
+            loadChatHistory();
             // Запускаем WebSocket и polling для обновления списка пиров
             connectWebSocket();
             updateStatus('connected');
             startPeersPolling();
+        }
+
+        async function loadChatHistory() {
+            try {
+                const res = await fetch("/api/chats");
+                if (!res.ok) return;
+                const peerIds = await res.json();
+                for (const peerId of peerIds) {
+                    if (!messages[peerId]) messages[peerId] = [];
+                }
+                rebuildChatPeers();
+                renderPeersList(document.getElementById("search-input").value);
+            } catch (err) {
+                console.error("Failed to load chat history:", err);
+            }
         }
 
         // При загрузке страницы проверяем регистрацию
@@ -707,11 +733,34 @@
             });
         }
 
+        // Собрать единый список пиров: online + offline с историей
+        function rebuildChatPeers() {
+            const map = {};
+            // Сначала добавляем live peers
+            for (const p of peers) {
+                map[p.node_id] = { ...p, online: true };
+            }
+            // Добавляем пиров из истории сообщений, если их нет в live
+            for (const peerId in messages) {
+                if (!map[peerId] && messages[peerId].length > 0) {
+                    map[peerId] = {
+                        node_id: peerId,
+                        name: peerId.slice(0, 8),
+                        ip: '—',
+                        port: 0,
+                        hops: 0,
+                        online: false,
+                    };
+                }
+            }
+            chatPeers = Object.values(map);
+        }
+
         // Рендер списка пиров
         function renderPeersList(filterText = "") {
             const listEl = document.getElementById("peers-list");
             const filter = filterText.toLowerCase();
-            const filtered = peers.filter(p =>
+            const filtered = chatPeers.filter(p =>
                 p.name.toLowerCase().includes(filter) ||
                 p.node_id.toLowerCase().includes(filter)
             );
@@ -724,10 +773,11 @@
             let html = "";
             for (const peer of filtered) {
                 const active = selectedPeer && selectedPeer.node_id === peer.node_id ? "active" : "";
+                const dotClass = peer.online ? '' : 'offline';
                 html += `
                     <div class="peer-item ${active}" data-peer-id="${escapeHtml(peer.node_id)}">
                         <div class="peer-name">
-                            <span class="peer-status-dot"></span>
+                            <span class="peer-status-dot ${dotClass}"></span>
                             ${escapeHtml(peer.name)}
                         </div>
                         <div class="peer-details">
@@ -749,7 +799,7 @@
 
         // Выбор пира
         function selectPeer(peerId) {
-            selectedPeer = peers.find(p => p.node_id === peerId);
+            selectedPeer = chatPeers.find(p => p.node_id === peerId);
             if (!selectedPeer) return;
 
             renderPeersList(document.getElementById("search-input").value);
@@ -765,11 +815,15 @@
                 return;
             }
 
+            const statusText = selectedPeer.online
+                ? `${escapeHtml(selectedPeer.ip)}:${selectedPeer.port}`
+                : 'offline';
+
             panel.innerHTML = `
                 <div class="chat-header">
                     <div class="chat-header-name">${escapeHtml(selectedPeer.name)}</div>
                     <div class="chat-header-info">
-                        ${escapeHtml(selectedPeer.node_id)} • ${escapeHtml(selectedPeer.ip)}:${selectedPeer.port}
+                        ${escapeHtml(selectedPeer.node_id)} • ${statusText}
                     </div>
                 </div>
                 <div class="chat-messages" id="chat-messages">
@@ -919,11 +973,12 @@
 
                 const data = await response.json();
                 peers = data || [];
+                rebuildChatPeers();
                 renderPeersList(document.getElementById("search-input").value);
 
                 // Обновить информацию о выбранном пире
                 if (selectedPeer) {
-                    const updated = peers.find(p => p.node_id === selectedPeer.node_id);
+                    const updated = chatPeers.find(p => p.node_id === selectedPeer.node_id);
                     if (updated) {
                         selectedPeer = updated;
                     }
