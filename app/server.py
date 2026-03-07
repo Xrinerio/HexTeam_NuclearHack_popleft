@@ -900,6 +900,45 @@ class Server:
         """
         self._peer_ids[addr] = peer_id
 
+    async def _read_loop(
+        self,
+        reader: asyncio.StreamReader,
+        addr: tuple,
+    ) -> None:
+        """Читает данные из TCP-потока, парсит JSON-сообщения и обрабатывает."""
+        recv_buf = b""
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    reader.read(65536),
+                    timeout=self.idle_timeout,
+                )
+            except TimeoutError:
+                logger.info(
+                    f"[TCP] [{addr}] Read timeout "
+                    f"({self.idle_timeout}s), disconnecting",
+                )
+                break
+            if not data:
+                break
+
+            self._last_active[addr] = asyncio.get_event_loop().time()
+            recv_buf += data
+
+            while b"\n" in recv_buf:
+                line, recv_buf = recv_buf.split(b"\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    message = json.loads(line.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    logger.warning(f"[TCP] [{addr}] Invalid data")
+                    continue
+
+                logger.debug(f"[TCP] [{addr}] >> {message}")
+                await _handle_message(self, message, addr=addr)
+
     async def handle_request(
         self,
         reader: asyncio.StreamReader,
@@ -910,38 +949,8 @@ class Server:
         self._last_active[addr] = asyncio.get_event_loop().time()
         logger.info(f"[TCP] [+] Connected: {addr}")
 
-        recv_buf = b""
         try:
-            while True:
-                data = await reader.read(65536)
-                if not data:
-                    break
-
-                self._last_active[addr] = asyncio.get_event_loop().time()
-                recv_buf += data
-
-                while b"\n" in recv_buf:
-                    line, recv_buf = recv_buf.split(b"\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        message = json.loads(
-                            line.decode("utf-8"),
-                        )
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        logger.warning(
-                            f"[TCP] [{addr}] Invalid data",
-                        )
-                        continue
-
-                    logger.debug(f"[TCP] [{addr}] >> {message}")
-                    await _handle_message(
-                        self,
-                        message,
-                        addr=addr,
-                    )
-
+            await self._read_loop(reader, addr)
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")
         except asyncio.IncompleteReadError:
