@@ -5,7 +5,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core import Settings
-from app.core.utils import get_local_ip
 from app.crud.users import (
     create_user,
     get_current_user,
@@ -31,8 +30,6 @@ class NodeInfoResponse(BaseModel):
     peer_id: str
     username: str
     created_at: str
-    ip: str
-    port: int
 
 
 @router.post("/register", status_code=201)
@@ -79,8 +76,6 @@ async def get_current_user_info() -> NodeInfoResponse:
         peer_id=row["peer_id"],
         username=row["username"],
         created_at=str(row["created_at"]),
-        ip=get_local_ip(),
-        port=Settings.PORT,
     )
 
 
