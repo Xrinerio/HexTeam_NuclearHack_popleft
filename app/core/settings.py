@@ -13,7 +13,7 @@ class Settings:
     UVICORN_HOST: str = "127.0.0.1"
     UVICORN_PORT: int = 8001
     # Время в секундах, после которого неактивный пир считается offline и удаляется из списка пиров.
-    IDLE_TIMEOUT: float = 30.0
+    IDLE_TIMEOUT: float = 20.0
     # Интервал между отправкой UDP broadcast сообщений для обнаружения пиров.
     DISCOVERY_INTERVAL: float = 3.0
     BROADCAST_ADDR: str = "255.255.255.255"
