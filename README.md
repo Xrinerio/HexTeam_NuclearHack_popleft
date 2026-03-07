@@ -60,13 +60,13 @@ UDP discovery на `50000`.
 
 ### Стек
 
-| Компонент       | Технология                       |
-| --------------- | -------------------------------- |
-| Backend         | FastAPI + Uvicorn (async Python) |
-| Шифрование      | PyNaCl (libsodium)               |
-| База данных     | SQLite3                          |
-| Сеть            | TCP + UDP + WebSocket            |
-| Контейнеризация | Docker                           |
+| Компонент   | Технология                       |
+| ----------- | -------------------------------- |
+| Backend     | FastAPI + Uvicorn (async Python) |
+| Шифрование  | PyNaCl (libsodium)               |
+| База данных | SQLite3                          |
+| Сеть        | TCP + UDP + WebSocket            |
+| Frontend    | HTML + CSS + JavaScript          |
 
 ### Шифрование (E2E)
 
