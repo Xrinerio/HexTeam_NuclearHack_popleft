@@ -297,12 +297,6 @@
             gap: 6px;
         }
 
-        .message-id {
-            font-size: 0.6rem;
-            color: #484f58;
-            font-family: 'JetBrains Mono', monospace;
-        }
-
         .delivery-status {
             font-size: 0.7rem;
         }
@@ -842,7 +836,6 @@
                         ? '<span class="delivery-status delivered" title="Доставлено">✓✓</span>'
                         : '<span class="delivery-status pending" title="Отправлено">✓</span>')
                     : '';
-                const shortId = msg.message_id ? msg.message_id.slice(0, 8) : '';
                 html += `
                     <div class="message ${type}" data-msg-id="${escapeHtml(msg.message_id || '')}">
                         <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
@@ -850,7 +843,6 @@
                         <div class="message-time">
                             ${formatTime(msg.timestamp)}
                             ${deliveryIcon}
-                            <span class="message-id" title="${escapeHtml(msg.message_id || '')}">#${escapeHtml(shortId)}</span>
                         </div>
                     </div>
                 `;
