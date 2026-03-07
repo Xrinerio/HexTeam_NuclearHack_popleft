@@ -30,7 +30,15 @@ from app.crypto.crypto import crypto
 from app.network.buffer import buffer
 from app.network.routing import routing
 from app.network.ws_manager import ws_manager
-from app.protocol import Ack, FileAck, FileChunk, KeyExchange, Message, Type
+from app.protocol import (
+    Ack,
+    FileAck,
+    FileChunk,
+    KeyExchange,
+    Message,
+    Pong,
+    Type,
+)
 
 
 def _our_public_key_b64() -> str:
@@ -106,7 +114,7 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
     new_key_bytes = base64.b64decode(public_key_b64)
     key_changed = existing is None or bytes(existing) != new_key_bytes
 
-    await crypto.add_peer(from_id, public_key_b64, reset_verified=key_changed)
+    await crypto.add_peer(from_id, public_key_b64)
     if key_changed:
         logger.info(
             f"[Crypto] Stored {'new' if existing is None else 'updated'} public key of {from_id}",
@@ -415,6 +423,46 @@ async def _handle_file_ack(server: "Server", message: dict) -> None:
         )
 
 
+async def _handle_ping(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(to_id, json.dumps(message).encode())
+        return
+
+    pong = Pong(
+        from_=server.peer_id,
+        to=message["from"],
+        ping_id=message["ping_id"],
+        ping_timestamp=message["timestamp"],
+        pong_timestamp=utils.now_ms(),
+    )
+    await server.send_to_peer(message["from"], pong.to_bytes())
+    logger.info(
+        f"[PING] Received ping {message['ping_id']} from {message['from']}, pong sent",
+    )
+
+
+async def _handle_pong(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(to_id, json.dumps(message).encode())
+        return
+
+    ping_id = message["ping_id"]
+    future = server.pending_pings.pop(ping_id, None)
+    if future and not future.done():
+        future.set_result(message)
+        logger.info(f"[PONG] Received pong {ping_id} from {message['from']}")
+
+
 async def _handle_message(
     server: "Server",
     message: dict[str, Any],
@@ -434,6 +482,10 @@ async def _handle_message(
         await _handle_file_chunk(server, message)
     elif msg_type == Type.FILE_ACK.value:
         await _handle_file_ack(server, message)
+    elif msg_type == Type.PING.value:
+        await _handle_ping(server, message)
+    elif msg_type == Type.PONG.value:
+        await _handle_pong(server, message)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -552,6 +604,7 @@ class Server:
         self._peer_ids: dict[tuple, str] = {}
         self._last_active: dict[tuple, float] = {}
         self._tasks: list[asyncio.Task] = []
+        self.pending_pings: dict[str, asyncio.Future] = {}
 
     async def start_server(self) -> None:
         logger.debug(
@@ -564,6 +617,9 @@ class Server:
                 self.port,
                 reuse_address=True,
             )
+            # Disable Nagle on listening sockets
+            for s in self.server.sockets:
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError as e:
             logger.error(
                 f"[Server] Failed to bind TCP on {self.host}:{self.port} — {e}",
@@ -719,6 +775,9 @@ class Server:
         logger.info(f"[TCP] Connecting to {addr}...")
         try:
             reader, writer = await asyncio.open_connection(*addr)
+            sock = writer.get_extra_info("socket")
+            if sock is not None:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._clients[addr] = writer
             self._last_active[addr] = asyncio.get_event_loop().time()
             task = asyncio.create_task(self.handle_request(reader, writer))
@@ -1057,6 +1116,9 @@ class Server:
         writer: asyncio.StreamWriter,
     ) -> None:
         addr: tuple[Any, ...] = writer.get_extra_info("peername")
+        sock = writer.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._clients[addr] = writer
         self._last_active[addr] = asyncio.get_event_loop().time()
         logger.info(f"[TCP] [+] Connected: {addr}")

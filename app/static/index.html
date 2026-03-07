@@ -5,12 +5,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>P2P Chat</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
-        rel="stylesheet">
     <style>
+        @font-face {
+            font-family: 'JetBrains Mono';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('JetBrainsMono-Regular.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: 'JetBrains Mono';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('JetBrainsMono-Medium.woff2') format('woff2');
+        }
+
+        @font-face {
+            font-family: 'JetBrains Mono';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('JetBrainsMono-SemiBold.woff2') format('woff2');
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -478,6 +497,115 @@
             background: #2ea043;
         }
 
+        /* Ping */
+        .peer-ping {
+            font-size: 0.7rem;
+            color: #8b949e;
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
+        .peer-ping.good {
+            color: #3fb950;
+        }
+
+        .peer-ping.medium {
+            color: #d29922;
+        }
+
+        .peer-ping.bad {
+            color: #f85149;
+        }
+
+        .peer-ping.pinging {
+            color: #8b949e;
+            font-style: italic;
+        }
+
+        .ping-btn {
+            padding: 4px 10px;
+            background: #2d3139;
+            color: #c9d1d9;
+            border: 1px solid #3d4149;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            margin-left: 8px;
+        }
+
+        .ping-btn:hover {
+            background: #3d4149;
+            border-color: #58a6ff;
+        }
+
+        .ping-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .chat-header-ping {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: #8b949e;
+            margin-left: 12px;
+        }
+
+        /* Avatars */
+        .avatar {
+            border-radius: 20%;
+            flex-shrink: 0;
+            image-rendering: pixelated;
+        }
+
+        .avatar-xs {
+            width: 22px;
+            height: 22px;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+
+        .avatar-sm {
+            width: 32px;
+            height: 32px;
+        }
+
+        .avatar-md {
+            width: 40px;
+            height: 40px;
+        }
+
+        .peer-avatar-wrap {
+            position: relative;
+            flex-shrink: 0;
+            margin-right: 10px;
+        }
+
+        .peer-avatar-wrap .peer-status-dot {
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            width: 10px;
+            height: 10px;
+            border: 2px solid #22252b;
+            margin-right: 0;
+        }
+
+        .self-info-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chat-header-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
         /* Модальное окно для ввода имени */
         .modal-overlay {
             position: fixed;
@@ -740,12 +868,15 @@
             <!-- Информация о себе -->
             <div class="self-info">
                 <div class="self-info-title">This Node</div>
-                <div class="self-info-grid">
-                    <span class="self-info-label">Name:</span>
-                    <span class="self-info-value" id="me-name">—</span>
-                    <span class="self-info-label">ID:</span>
-                    <span class="self-info-value" id="me-id"
-                        title="Полный peer ID">—</span>
+                <div class="self-info-row">
+                    <img class="avatar avatar-sm" id="me-avatar">
+                    <div class="self-info-grid">
+                        <span class="self-info-label">Name:</span>
+                        <span class="self-info-value" id="me-name">—</span>
+                        <span class="self-info-label">ID:</span>
+                        <span class="self-info-value" id="me-id"
+                            title="Полный peer ID">—</span>
+                    </div>
                 </div>
             </div>
 
@@ -810,7 +941,52 @@
         let messages = {};
         let fileTransfers = {}; // peer_id -> [{file_id, filename, file_size, ...}]
         let verifiedPeers = {}; // peer_id -> bool
+        let pingResults = {};   // peer_id -> { rtt_ms, time_to_target_ms, time_from_target_ms }
+        let pingedPeers = new Set(); // peers already auto-pinged this session
         let ws = null;
+
+        // ─── Avatar Generation (identicon) ─────────────────────
+        const avatarCache = {};
+        function generateAvatar(peerId, size) {
+            size = size || 36;
+            const cacheKey = peerId + ':' + size;
+            if (avatarCache[cacheKey]) return avatarCache[cacheKey];
+            const b = new Array(16).fill(0);
+            for (let i = 0; i < peerId.length; i++) {
+                b[i % 16] = (b[i % 16] * 31 + peerId.charCodeAt(i)) & 0xFF;
+            }
+            const h = (b[0] * 360 / 256) | 0;
+            const s = 45 + (b[1] % 35);
+            const l = 60 + (b[2] % 15);
+            const fg = 'hsl(' + h + ',' + s + '%,' + l + '%)';
+            const bg = 'hsl(' + h + ',' + s + '%,' + ((l * 0.3) | 0) + '%)';
+            const grid = [];
+            for (let r = 0; r < 5; r++) {
+                grid[r] = [];
+                for (let c = 0; c < 3; c++) {
+                    grid[r][c] = b[(3 + r * 3 + c) % 16] > 127 ? 1 : 0;
+                }
+                grid[r][3] = grid[r][1];
+                grid[r][4] = grid[r][0];
+            }
+            const cell = size / 7;
+            const pad = cell;
+            let rects = '';
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c < 5; c++) {
+                    if (grid[r][c]) {
+                        rects += '<rect x="' + (pad + c * cell) + '" y="' + (pad + r * cell) +
+                            '" width="' + cell + '" height="' + cell + '" fill="' + fg + '"/>';
+                    }
+                }
+            }
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
+                '"><rect width="' + size + '" height="' + size + '" rx="' + (size * 0.18) +
+                '" fill="' + bg + '"/>' + rects + '</svg>';
+            const uri = 'data:image/svg+xml;base64,' + btoa(svg);
+            avatarCache[cacheKey] = uri;
+            return uri;
+        }
 
         // WebSocket connection
         function connectWebSocket() {
@@ -960,6 +1136,7 @@
             myInfo = userData;
             document.getElementById("me-id").textContent = userData.peer_id;
             document.getElementById("me-name").textContent = userData.username;
+            document.getElementById("me-avatar").src = generateAvatar(userData.peer_id, 32);
 
             // Загружаем историю чатов, чтобы оффлайн-диалоги появились сразу
             loadChatHistory();
@@ -1066,11 +1243,17 @@
                 const vBadge = verifiedPeers[peer.node_id]
                     ? '<span class="verified-badge" title="Верифицирован">🛡️</span>'
                     : '';
+                const pingHtml = formatPingBadge(peer.node_id, peer.online);
+                const peerAvatar = generateAvatar(peer.node_id, 32);
                 html += `
                     <div class="peer-item ${active}" data-peer-id="${escapeHtml(peer.node_id)}">
                         <div class="peer-name">
-                            <span class="peer-status-dot ${dotClass}"></span>
+                            <div class="peer-avatar-wrap">
+                                <img class="avatar avatar-sm" src="${peerAvatar}">
+                                <span class="peer-status-dot ${dotClass}"></span>
+                            </div>
                             ${escapeHtml(peer.name)}${vBadge}
+                            ${pingHtml}
                         </div>
                         <div class="peer-details">
                             ${escapeHtml(peer.node_id)}
@@ -1118,13 +1301,26 @@
             const secBtnClass = isVerified ? 'security-btn verified' : 'security-btn';
             const secBtnLabel = isVerified ? '🛡️ Верифицирован' : '🔓 Код безопасности';
 
+            const pingInfo = pingResults[selectedPeer.node_id];
+            const pingText = pingInfo ? `${pingInfo.rtt_ms} ms` : '';
+            const pingBtnHtml = selectedPeer.online
+                ? `<span class="chat-header-ping">${pingText ? '' + escapeHtml(pingText) : ''}<button class="ping-btn" id="chat-ping-btn">Ping</button></span>`
+                : '';
+
+            const chatAvatar = generateAvatar(selectedPeer.node_id, 40);
             panel.innerHTML = `
                 <div class="chat-header">
-                    <div class="chat-header-name">${escapeHtml(selectedPeer.name)}${badgeHtml}
-                        <button class="${secBtnClass}" id="security-btn">${secBtnLabel}</button>
-                    </div>
-                    <div class="chat-header-info">
-                        ${escapeHtml(selectedPeer.node_id)} • ${statusText}
+                    <div class="chat-header-row">
+                        <img class="avatar avatar-md" src="${chatAvatar}">
+                        <div>
+                            <div class="chat-header-name">${escapeHtml(selectedPeer.name)}${badgeHtml}
+                                <button class="${secBtnClass}" id="security-btn">${secBtnLabel}</button>
+                                ${pingBtnHtml}
+                            </div>
+                            <div class="chat-header-info">
+                                ${escapeHtml(selectedPeer.node_id)} • ${statusText}
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="chat-messages" id="chat-messages">
@@ -1162,6 +1358,17 @@
             document.getElementById('security-btn').addEventListener('click', () => {
                 openSafetyModal(selectedPeer.node_id);
             });
+            // Ping button handler
+            const pingBtn = document.getElementById("chat-ping-btn");
+            if (pingBtn) {
+                pingBtn.addEventListener("click", async () => {
+                    pingBtn.disabled = true;
+                    pingBtn.textContent = '...';
+                    await pingPeer(selectedPeer.node_id);
+                    renderChat();
+                    loadMessages(selectedPeer.node_id);
+                });
+            }
 
             // File upload handlers
             const fileBtn = document.getElementById("file-btn");
@@ -1221,9 +1428,10 @@
                             ? '<span class="delivery-status delivered" title="Доставлено">✓✓</span>'
                             : '<span class="delivery-status pending" title="Отправлено">✓</span>')
                         : '';
+                    const msgAvatar = isSent ? '' : '<img class="avatar avatar-xs" src="' + generateAvatar(selectedPeer.node_id, 22) + '">';
                     html += `
                         <div class="message ${type}" data-msg-id="${escapeHtml(msg.message_id || '')}">
-                            <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
+                            <div class="message-header">${isSent ? "Вы" : msgAvatar + escapeHtml(selectedPeer.name)}</div>
                             <div class="message-content">${escapeHtml(msg.content)}</div>
                             <div class="message-time">
                                 ${formatTime(msg.timestamp)}
@@ -1331,6 +1539,21 @@
                     }
                 }
 
+                // Auto-ping new online peers
+                for (const peer of peers) {
+                    if (!pingedPeers.has(peer.node_id)) {
+                        pingedPeers.add(peer.node_id);
+                        pingPeer(peer.node_id);
+                    }
+                }
+                // Clean up pingedPeers for peers that went offline
+                for (const pid of pingedPeers) {
+                    if (!peers.some(p => p.node_id === pid)) {
+                        pingedPeers.delete(pid);
+                        delete pingResults[pid];
+                    }
+                }
+
                 updateStatus('connected');
             } catch (err) {
                 console.error("Failed to fetch peers:", err);
@@ -1424,6 +1647,40 @@
                     }
                 } catch (_) { /* ignore */ }
             }
+        }
+
+        // ─── Ping Functions ─────────────────────────────────────────
+
+        function formatPingBadge(peerId, online) {
+            if (!online) return '';
+            const p = pingResults[peerId];
+            if (!p) return '<span class="peer-ping pinging">ping...</span>';
+            const ms = p.rtt_ms;
+            let cls = 'good';
+            if (ms > 500) cls = 'bad';
+            else if (ms > 150) cls = 'medium';
+            return `<span class="peer-ping ${cls}">${ms} ms</span>`;
+        }
+
+        async function pingPeer(peerId) {
+            try {
+                const res = await fetch("/api/ping", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ peer_id: peerId }),
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    pingResults[peerId] = data;
+                } else {
+                    delete pingResults[peerId];
+                }
+            } catch (err) {
+                console.error(`Ping failed for ${peerId}:`, err);
+                delete pingResults[peerId];
+            }
+            // Refresh peer list to update badge
+            renderPeersList(document.getElementById("search-input").value);
         }
 
         // ─── File Transfer Functions ────────────────────────────────
@@ -1523,9 +1780,10 @@
 
             const ts = ft.created_at ? formatTime(ft.created_at) : '';
 
+            const ftAvatar = isSent ? '' : '<img class="avatar avatar-xs" src="' + generateAvatar(selectedPeer.node_id, 22) + '">';
             return `
                 <div class="message ${type}" data-file-id="${escapeHtml(ft.file_id)}">
-                    <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
+                    <div class="message-header">${isSent ? "Вы" : ftAvatar + escapeHtml(selectedPeer.name)}</div>
                     <div class="file-message">
                         <span class="file-icon">${icon}</span>
                         <div class="file-info">

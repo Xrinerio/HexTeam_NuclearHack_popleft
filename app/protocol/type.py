@@ -12,3 +12,5 @@ class Type(Enum):
     KEY_EXCHANGE = "KEY_EXCHANGE"
     FILE_CHUNK = "FILE_CHUNK"
     FILE_ACK = "FILE_ACK"
+    PING = "PING"
+    PONG = "PONG"
