@@ -32,7 +32,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
         self.server = server
-        self._futures: set[asyncio.Future] = {}
+        self._futures: set[asyncio.Future] = set()
         self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -86,10 +86,10 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             ),
         )
 
-    def error_received(self, exc: Exception) -> None:  # noqa: PLR6301
+    def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
 
-    def connection_lost(self, _: Exception | None) -> None:  # noqa: PLR6301
+    def connection_lost(self, _: Exception | None) -> None:
         logger.info("[UDP] Broadcast listener stopped")
 
 
@@ -204,7 +204,7 @@ class Server:
 
     @staticmethod
     def _get_local_ips() -> list[str]:
-        """Возвращает все локальные не-loopback IPv4 адреса."""  # noqa: DOC201
+        """Возвращает все локальные не-loopback IPv4 адреса."""
         ips: set[str] = set()
         for info in socket.getaddrinfo(
             socket.gethostname(),
@@ -275,7 +275,7 @@ class Server:
             logger.debug("[UDP] Broadcast sockets closed")
 
     async def _connect(self, addr: tuple) -> asyncio.StreamWriter | None:
-        """Открыть TCP-соединение к addr по требованию."""  # noqa: DOC201
+        """Открыть TCP-соединение к addr по требованию."""
         logger.info(f"[TCP] Connecting to {addr}...")
         try:
             reader, writer = await asyncio.open_connection(*addr)
