@@ -173,6 +173,14 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         #     "port": tcp_port,       tcp порт пира
         #
 
+        routing.add_neighbor(
+            destination=sender_id,
+            name=name,
+            ip=addr[0],
+            port=pkt.get("port", 0),
+        )
+        logger.info(routing)
+
         # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast. # noqa: RUF003
         await self.server.send(
             addr=(addr[0], pkt.get("port")),
