@@ -122,20 +122,8 @@ class Routing:
         routes: list[dict],
     ) -> None:
         """Обновить таблицу маршрутов по списку из PEER_INFO (Bellman-Ford)."""
-        # Remove all indirect routes previously learned via this gateway.
-        # This ensures that if a destination disappeared from the advertisement
-        # (because it went offline), we don't keep a stale route to it.
-        # The gateway's own direct route (destination == gateway) is preserved.
-        stale = [
-            d
-            for d, r in self._table.items()
-            if r.gateway == gateway and d != gateway
-        ]
-        for dest in stale:
-            logger.info(
-                f"Удалён устаревший маршрут до {dest} (через {gateway})",
-            )
-            del self._table[dest]
+        # Собираем множество destination'ов из новой рекламы
+        advertised_dests: set[str] = set()
 
         for entry in routes:
             dest: str | None = entry.get("destination")
@@ -144,6 +132,8 @@ class Routing:
 
             if not dest or dest == gateway:
                 continue
+
+            advertised_dests.add(dest)
 
             new_hops = advertised_hops + 1
             if new_hops >= _MAX_DISTANCE:
@@ -160,6 +150,20 @@ class Routing:
                     port=gateway_port,
                     hops=new_hops,
                 )
+
+        # Удаляем маршруты через gateway, которых больше нет в рекламе
+        stale = [
+            d
+            for d, r in self._table.items()
+            if r.gateway == gateway
+            and d != gateway
+            and d not in advertised_dests
+        ]
+        for dest in stale:
+            logger.info(
+                f"Удалён устаревший маршрут до {dest} (через {gateway})",
+            )
+            del self._table[dest]
 
     def all_routes(self) -> list[_Route]:
         return list(self._table.values())

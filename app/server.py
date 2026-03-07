@@ -432,23 +432,43 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        # НЕ добавляем соседа здесь: получение UDP broadcast не гарантирует
+        # Не добавляем соседа здесь: получение UDP broadcast не гарантирует
         # возможность TCP-связи (например, при firewall-блокировке).
         # Сосед будет добавлен в _handle_peer_info при успешном TCP-обмене.
 
-        await self.server.send(
-            addr=(addr[0], pkt.get("port")),
-            data=json.dumps(
-                {
-                    "type": Type.PEER_INFO.value,
-                    "peer_id": self.server.peer_id,
-                    "name": Settings.USERNAME,  # or socket.gethostname(),
-                    "port": self.server.port,
-                    "routes": routing.get_advertisement(to_node_id=sender_id),
-                },
-            ),
-            peer_id=sender_id,
+        target_addr = (addr[0], pkt.get("port"))
+        peer_info_data = json.dumps(
+            {
+                "type": Type.PEER_INFO.value,
+                "peer_id": self.server.peer_id,
+                "name": Settings.USERNAME,
+                "port": self.server.port,
+                "routes": routing.get_advertisement(to_node_id=sender_id),
+            },
         )
+
+        # Если пир уже известен — отправляем через существующее TCP-соединение.
+        # Если нет — пробуем подключиться ОДИН раз (без ретраев).
+        # Это позволяет найти нового соседа, но не блокирует event loop
+        # длительными ретраями при firewall-блокировке.
+        if routing.get_route(sender_id) is not None:
+            await self.server.send(
+                addr=target_addr,
+                data=peer_info_data,
+                peer_id=sender_id,
+            )
+        else:
+            # Первый контакт: одна попытка TCP без ретраев
+            saved = self.server.send_retries
+            self.server.send_retries = 1
+            try:
+                await self.server.send(
+                    addr=target_addr,
+                    data=peer_info_data,
+                    peer_id=sender_id,
+                )
+            finally:
+                self.server.send_retries = saved
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
