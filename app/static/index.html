@@ -978,6 +978,10 @@
 
                 const data = await response.json();
                 peers = data || [];
+                // Сохранить имена онлайн-пиров
+                for (const peer of peers) {
+                    contactNames[peer.node_id] = peer.name;
+                }
                 rebuildChatPeers();
                 renderPeersList(document.getElementById("search-input").value);
 
