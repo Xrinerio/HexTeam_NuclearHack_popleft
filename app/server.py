@@ -316,7 +316,6 @@ class Server:
                 for addr in list(self._clients):
                     idle = now - self._last_active.get(addr, now)
                     if idle > self.idle_timeout:
-                        routing.remove_routes_via(self._peer_ids.get(addr))
                         writer = self._clients.pop(addr, None)
                         self._peer_ids.pop(addr, None)
                         self._last_active.pop(addr, None)
@@ -373,6 +372,10 @@ class Server:
         except OSError as e:
             logger.error(f"[TCP] [{addr}] OS error: {e}")
         finally:
+            peer_id = self._peer_ids.get(addr)
+            if peer_id is not None:
+                routing.remove_routes_via(peer_id)
+                logger.info(f"[TCP] Routes via {peer_id} removed\n{routing}")
             self._clients.pop(addr, None)
             self._peer_ids.pop(addr, None)
             self._last_active.pop(addr, None)
