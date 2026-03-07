@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core import logger, utils
+from app.network.routing import routing
 from app.protocol import CallAnswer, CallEnd, CallOffer
 
 router: APIRouter = APIRouter()
@@ -30,6 +31,12 @@ async def offer_call(request: Request, body: CallOfferRequest) -> dict:
 
     if not server.peer_id:
         raise HTTPException(status_code=503, detail="Server not ready")
+
+    if routing.get_next_hop_addr(body.peer_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Peer is not reachable",
+        )
 
     call_id = str(uuid.uuid4())
     offer = CallOffer(
