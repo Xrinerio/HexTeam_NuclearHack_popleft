@@ -1525,19 +1525,28 @@
                 ? `<span class="chat-header-ping">${pingText ? '' + escapeHtml(pingText) : ''}<button class="ping-btn" id="chat-ping-btn">Ping</button></span>`
                 : '';
 
-            const callBtnHtml = selectedPeer.online && !(currentCall && currentCall.state === 'active')
+            const callBtnHtml = selectedPeer.online && !currentCall
                 ? `<button class="call-btn" id="chat-call-btn">📞 Звонок</button>`
                 : '';
 
-            const callBarHtml = currentCall && currentCall.state === 'active' && currentCall.peer_id === selectedPeer.node_id
-                ? `<div class="call-bar">
-                    <div class="call-bar-indicator"></div>
-                    <div class="call-bar-info">Звонок с ${escapeHtml(selectedPeer.name)}</div>
-                    <div class="call-bar-timer" id="call-timer">00:00</div>
-                    <button class="call-mute-btn${currentCall.muted ? ' muted' : ''}" id="call-mute-btn">${currentCall.muted ? '🔇' : '🔊'}</button>
-                    <button class="call-end-btn" id="call-end-btn">Завершить</button>
-                  </div>`
-                : '';
+            let callBarHtml = '';
+            if (currentCall && currentCall.peer_id === selectedPeer.node_id) {
+                if (currentCall.state === 'offering') {
+                    callBarHtml = `<div class="call-bar">
+                        <div class="call-bar-indicator"></div>
+                        <div class="call-bar-info">Вызов ${escapeHtml(selectedPeer.name)}...</div>
+                        <button class="call-end-btn" id="call-end-btn">Отмена</button>
+                      </div>`;
+                } else if (currentCall.state === 'active') {
+                    callBarHtml = `<div class="call-bar">
+                        <div class="call-bar-indicator"></div>
+                        <div class="call-bar-info">Звонок с ${escapeHtml(selectedPeer.name)}</div>
+                        <div class="call-bar-timer" id="call-timer">00:00</div>
+                        <button class="call-mute-btn${currentCall.muted ? ' muted' : ''}" id="call-mute-btn">${currentCall.muted ? '🔇' : '🔊'}</button>
+                        <button class="call-end-btn" id="call-end-btn">Завершить</button>
+                      </div>`;
+                }
+            }
 
             const chatAvatar = generateAvatar(selectedPeer.node_id, 40);
             panel.innerHTML = `
