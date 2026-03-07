@@ -95,9 +95,9 @@
 
         .self-info-value {
             color: #c9d1d9;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            word-break: break-all;
+            font-size: 0.75rem;
+            line-height: 1.3;
         }
 
         /* Поиск */
@@ -185,6 +185,8 @@
         .peer-details {
             font-size: 0.7rem;
             color: #8b949e;
+            word-break: break-all;
+            line-height: 1.2;
         }
 
         .empty-msg {
@@ -480,7 +482,7 @@
                 <h1>P2P Chat</h1>
                 <div class="status" id="ws-status">
                     <span class="ws-dot"
-                        style="background:#6e7681"></span>Connecting...
+                        style="background:#6e7681"></span>Подключение...
                 </div>
             </div>
 
@@ -491,11 +493,8 @@
                     <span class="self-info-label">Name:</span>
                     <span class="self-info-value" id="me-name">—</span>
                     <span class="self-info-label">ID:</span>
-                    <span class="self-info-value" id="me-id">—</span>
-                    <span class="self-info-label">IP:Port:</span>
-                    <span class="self-info-value"><span
-                            id="me-ip">—</span>:<span
-                            id="me-port">—</span></span>
+                    <span class="self-info-value" id="me-id"
+                        title="Полный peer ID">—</span>
                 </div>
             </div>
 
@@ -507,14 +506,14 @@
 
             <!-- Список пиров -->
             <div class="peers-list" id="peers-list">
-                <div class="empty-msg">Searching for peers...</div>
+                <div class="empty-msg">Поиск пиров...</div>
             </div>
         </div>
 
         <!-- Правая панель - чат -->
         <div class="chat-panel" id="chat-panel">
             <div class="chat-empty">
-                Select a peer to start chatting
+                Выберите пир для начала общения
             </div>
         </div>
     </div>
@@ -522,12 +521,12 @@
     <!-- Модальное окно для ввода имени -->
     <div class="modal-overlay hidden" id="name-modal">
         <div class="modal-box">
-            <div class="modal-title">Welcome to P2P Chat</div>
-            <div class="modal-subtitle">Please enter your name to continue. This
-                will be visible to other peers in the network.</div>
+            <div class="modal-title">Добро пожаловать в P2P Chat</div>
+            <div class="modal-subtitle">Пожалуйста, введите ваше имя для
+                продолжения. Оно будет видно другим пользователям в сети.</div>
             <input type="text" class="modal-input" id="name-input"
-                placeholder="Your name" maxlength="50" autofocus>
-            <button class="modal-btn" id="name-submit">Continue</button>
+                placeholder="Ваше имя" maxlength="64" autofocus>
+            <button class="modal-btn" id="name-submit">Продолжить</button>
         </div>
     </div>
 
@@ -537,15 +536,7 @@
         let selectedPeer = null;
         let messages = {};
 
-        // Функции для работы с именем пользователя
-        function getUserName() {
-            return localStorage.getItem('p2p_user_name');
-        }
-
-        function setUserName(name) {
-            localStorage.setItem('p2p_user_name', name);
-        }
-
+        // Функция для показа модального окна регистрации
         function showNameModal() {
             const modal = document.getElementById('name-modal');
             const input = document.getElementById('name-input');
@@ -554,12 +545,38 @@
             modal.classList.remove('hidden');
             input.focus();
 
-            const handleSubmit = () => {
-                const name = input.value.trim();
-                if (name) {
-                    setUserName(name);
+            const handleSubmit = async () => {
+                const username = input.value.trim();
+                if (!username) {
+                    return;
+                }
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Регистрация...';
+
+                try {
+                    const response = await fetch("/api/register", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username: username })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        alert(error.detail || 'Ошибка регистрации');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Продолжить';
+                        return;
+                    }
+
+                    const userData = await response.json();
                     modal.classList.add('hidden');
-                    initializeApp();
+                    initializeApp(userData);
+                } catch (err) {
+                    console.error("Registration error:", err);
+                    alert('Ошибка регистрации. Попробуйте еще раз.');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Продолжить';
                 }
             };
 
@@ -572,41 +589,39 @@
             };
         }
 
-        // Проверка имени при загрузке
-        function checkUserName() {
-            const name = getUserName();
-            if (!name) {
+        // Проверка регистрации при загрузке
+        async function checkUserRegistration() {
+            try {
+                const response = await fetch("/api/me");
+                if (response.ok) {
+                    const userData = await response.json();
+                    initializeApp(userData);
+                } else if (response.status === 404) {
+                    // Пользователь не зарегистрирован
+                    showNameModal();
+                } else {
+                    console.error("Failed to check registration:", response.status);
+                    showNameModal();
+                }
+            } catch (err) {
+                console.error("Error checking registration:", err);
                 showNameModal();
-                return false;
             }
-            return true;
         }
 
         // Инициализация приложения
-        function initializeApp() {
-            const userName = getUserName();
+        function initializeApp(userData) {
+            myInfo = userData;
+            document.getElementById("me-id").textContent = userData.peer_id;
+            document.getElementById("me-name").textContent = userData.username;
 
-            // Загрузка информации о себе
-            fetch("/api/me")
-                .then(r => r.json())
-                .then(me => {
-                    myInfo = me;
-                    // Используем имя из localStorage вместо имени устройства
-                    myInfo.name = userName;
-                    document.getElementById("me-id").textContent = me.node_id.substring(0, 12);
-                    document.getElementById("me-name").textContent = userName;
-                    document.getElementById("me-ip").textContent = me.ip;
-                    document.getElementById("me-port").textContent = me.port;
-                });
-
-            // Запускаем WebSocket
-            connectWs();
+            // Запускаем polling для обновления списка пиров
+            updateStatus('connected');
+            startPeersPolling();
         }
 
-        // При загрузке страницы проверяем имя
-        if (checkUserName()) {
-            initializeApp();
-        }
+        // При загрузке страницы проверяем регистрацию
+        checkUserRegistration();
 
         // Экранирование HTML
         function escapeHtml(str) {
@@ -633,7 +648,7 @@
             );
 
             if (!filtered.length) {
-                listEl.innerHTML = '<div class="empty-msg">No peers found</div>';
+                listEl.innerHTML = '<div class="empty-msg">Пиры не найдены</div>';
                 return;
             }
 
@@ -647,7 +662,7 @@
                             ${escapeHtml(peer.name)}
                         </div>
                         <div class="peer-details">
-                            ${escapeHtml(peer.node_id.substring(0, 12))}
+                            ${escapeHtml(peer.node_id)}
                         </div>
                     </div>
                 `;
@@ -677,7 +692,7 @@
         function renderChat() {
             const panel = document.getElementById("chat-panel");
             if (!selectedPeer) {
-                panel.innerHTML = '<div class="chat-empty">Select a peer to start chatting</div>';
+                panel.innerHTML = '<div class="chat-empty">Выберите пир для начала общения</div>';
                 return;
             }
 
@@ -689,13 +704,13 @@
                     </div>
                 </div>
                 <div class="chat-messages" id="chat-messages">
-                    <div class="empty-msg">Loading messages...</div>
+                    <div class="empty-msg">Загрузка сообщений...</div>
                 </div>
                 <div class="chat-input-area">
                     <div class="chat-input-wrapper">
                         <button class="file-btn" title="File sharing (coming soon)" disabled>📎</button>
-                        <textarea class="chat-input" id="chat-input" placeholder="Type a message..." rows="1"></textarea>
-                        <button class="send-btn" id="send-btn">Send</button>
+                        <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение..." rows="1"></textarea>
+                        <button class="send-btn" id="send-btn">Отправить</button>
                     </div>
                 </div>
             `;
@@ -727,7 +742,7 @@
                 messages[peerId] = data;
                 renderMessages();
             } catch (err) {
-                console.error("Failed to load messages:", err);
+                console.error("Ошибка загрузки сообщений:", err);
             }
         }
 
@@ -739,7 +754,7 @@
             const peerMessages = messages[selectedPeer.node_id] || [];
 
             if (!peerMessages.length) {
-                container.innerHTML = '<div class="empty-msg">No messages yet. Start the conversation!</div>';
+                container.innerHTML = '<div class="empty-msg">Пока нет сообщений. Начните беседу!</div>';
                 return;
             }
 
@@ -749,7 +764,7 @@
                 const type = isSent ? "sent" : "received";
                 html += `
                     <div class="message ${type}">
-                        <div class="message-header">${isSent ? "You" : escapeHtml(selectedPeer.name)}</div>
+                        <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
                         <div class="message-content">${escapeHtml(msg.content)}</div>
                         <div class="message-time">${formatTime(msg.timestamp)}</div>
                     </div>
@@ -781,8 +796,8 @@
                 input.style.height = "auto";
                 loadMessages(selectedPeer.node_id);
             } catch (err) {
-                console.error("Failed to send message:", err);
-                alert("Failed to send message");
+                console.error("Ошибка отправки сообщения:", err);
+                alert("Не удалось отправить сообщение");
             }
         }
 
@@ -791,19 +806,37 @@
             renderPeersList(e.target.value);
         });
 
-        // WebSocket
-        function connectWs() {
-            const proto = location.protocol === "https:" ? "wss:" : "ws:";
-            const ws = new WebSocket(proto + "//" + location.host + "/ws");
+        // Функция для обновления статуса подключения
+        function updateStatus(status) {
             const statusEl = document.getElementById("ws-status");
+            if (status === 'connected') {
+                statusEl.innerHTML = '<span class="ws-dot" style="background:#3fb950"></span>Подключено';
+            } else {
+                statusEl.innerHTML = '<span class="ws-dot" style="background:#f85149"></span>Отключено';
+            }
+        }
 
-            ws.onopen = () => {
-                statusEl.innerHTML = '<span class="ws-dot" style="background:#3fb950"></span>Connected';
-            };
+        // Polling для обновления списка пиров
+        let peersPollingInterval = null;
 
-            ws.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                peers = data.peers || [];
+        function startPeersPolling() {
+            // Первое обновление сразу
+            updatePeersList();
+
+            // Обновляем каждые 3 секунды
+            peersPollingInterval = setInterval(updatePeersList, 3000);
+        }
+
+        async function updatePeersList() {
+            try {
+                const response = await fetch("/api/peers");
+                if (!response.ok) {
+                    updateStatus('disconnected');
+                    return;
+                }
+
+                const data = await response.json();
+                peers = data || [];
                 renderPeersList(document.getElementById("search-input").value);
 
                 // Обновить информацию о выбранном пире
@@ -813,14 +846,12 @@
                         selectedPeer = updated;
                     }
                 }
-            };
 
-            ws.onclose = () => {
-                statusEl.innerHTML = '<span class="ws-dot" style="background:#f85149"></span>Disconnected';
-                setTimeout(connectWs, 2000);
-            };
-
-            ws.onerror = () => ws.close();
+                updateStatus('connected');
+            } catch (err) {
+                console.error("Failed to fetch peers:", err);
+                updateStatus('disconnected');
+            }
         }
     </script>
 </body>
