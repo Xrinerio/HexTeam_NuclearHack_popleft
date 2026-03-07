@@ -30,3 +30,6 @@ class Settings:
     FILE_CHUNK_SIZE: int = 32768
     # Директория для хранения данных файловых передач.
     FILES_DIR: str = "files/transfers"
+
+
+Settings = Settings()
