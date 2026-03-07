@@ -6,7 +6,9 @@ from typing import Any
 
 from app.core import Settings, logger, utils
 from app.crud.messages import (
+    delete_expired_undelivered,
     get_undelivered_outgoing,
+    increment_retry_count,
     mark_delivered,
     save_message,
 )
@@ -486,6 +488,17 @@ class Server:
                 if not self.peer_id:
                     continue
 
+                # Clean up expired / exhausted messages
+                deleted = delete_expired_undelivered(
+                    ttl=Settings.MESSAGE_TTL,
+                    max_retries=Settings.MESSAGE_MAX_RETRIES,
+                )
+                if deleted:
+                    logger.info(
+                        f"[Resend] Deleted {deleted} expired/exhausted "
+                        f"undelivered message(s)",
+                    )
+
                 pending = get_undelivered_outgoing()
                 if not pending:
                     continue
@@ -496,9 +509,21 @@ class Server:
 
                 for row in pending:
                     to_id = row["to_peer_id"]
+                    increment_retry_count(row["message_id"])
+
                     if routing.get_route(to_id) is None:
+                        logger.debug(
+                            f"[Resend] No route to {to_id}, "
+                            f"skipping {row['message_id']} "
+                            f"(attempt {row['retry_count'] + 1})",
+                        )
                         continue
                     if to_id not in crypto.peers:
+                        logger.debug(
+                            f"[Resend] No key for {to_id}, "
+                            f"skipping {row['message_id']} "
+                            f"(attempt {row['retry_count'] + 1})",
+                        )
                         continue
 
                     try:
@@ -524,7 +549,8 @@ class Server:
                     await self.send_to_peer(to_id, msg.to_bytes())
                     logger.info(
                         f"[Resend] Re-sent message {row['message_id']} "
-                        f"to {to_id}",
+                        f"to {to_id} "
+                        f"(attempt {row['retry_count'] + 1})",
                     )
         except asyncio.CancelledError:
             logger.debug("[Resend] _resend_undelivered_loop cancelled")
