@@ -5,11 +5,15 @@ import socket
 from typing import Any
 
 from app.core import Settings, logger, utils
-from app.crud.messages import mark_delivered, save_message
+from app.crud.messages import (
+    get_undelivered_outgoing,
+    mark_delivered,
+    save_message,
+)
 from app.crypto.crypto import crypto
 from app.network import routing
 from app.network.ws_manager import ws_manager
-from app.protocol import Ack, KeyExchange, Type
+from app.protocol import Ack, KeyExchange, Message, Type
 
 
 def _our_public_key_b64() -> str:
@@ -256,6 +260,9 @@ class Server:
         discovery_port: int = 50000,
         idle_timeout: float = 20.0,
         broadcast_addr: str = "255.255.255.255",
+        send_retries: int = 3,
+        retry_delay: float = 1.0,
+        resend_interval: float = 10.0,
     ) -> None:
         self.host = host
         self.port = port
@@ -264,6 +271,9 @@ class Server:
         self.discovery_port = discovery_port
         self.idle_timeout = idle_timeout
         self.broadcast_addr = broadcast_addr
+        self.send_retries = send_retries
+        self.retry_delay = retry_delay
+        self.resend_interval = resend_interval
         self.server: asyncio.AbstractServer | None = None
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._clients: dict[tuple, asyncio.StreamWriter] = {}
@@ -305,9 +315,11 @@ class Server:
         self._tasks = [
             asyncio.create_task(self._broadcast_loop()),
             asyncio.create_task(self._idle_cleanup_loop()),
+            asyncio.create_task(self._resend_undelivered_loop()),
         ]
         logger.info(
-            "[Server] Background tasks started (_broadcast_loop, _idle_cleanup_loop)",
+            "[Server] Background tasks started "
+            "(_broadcast_loop, _idle_cleanup_loop, _resend_undelivered_loop)",
         )
 
     async def stop_server(self) -> None:
@@ -466,19 +478,95 @@ class Server:
         except asyncio.CancelledError:
             logger.debug("[TCP] _idle_cleanup_loop cancelled")
 
+    async def _resend_undelivered_loop(self) -> None:
+        """Периодически переотправляет недоставленные исходящие сообщения."""
+        try:
+            while True:
+                await asyncio.sleep(self.resend_interval)
+                if not self.peer_id:
+                    continue
+
+                pending = get_undelivered_outgoing()
+                if not pending:
+                    continue
+
+                logger.info(
+                    f"[Resend] {len(pending)} undelivered message(s) found",
+                )
+
+                for row in pending:
+                    to_id = row["to_peer_id"]
+                    if routing.get_route(to_id) is None:
+                        continue
+                    if to_id not in crypto.peers:
+                        continue
+
+                    try:
+                        raw = await crypto.encrypt_message_to(
+                            row["content"].encode(),
+                            to_id,
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            f"[Resend] Encrypt failed for {row['message_id']}",
+                        )
+                        continue
+
+                    msg = Message(
+                        from_=self.peer_id,
+                        to=to_id,
+                        payload=base64.b64encode(raw).decode(),
+                        encrypted=True,
+                    )
+                    msg.id = row["message_id"]
+                    msg.sent = row["created_at"]
+
+                    await self.send_to_peer(to_id, msg.to_bytes())
+                    logger.info(
+                        f"[Resend] Re-sent message {row['message_id']} "
+                        f"to {to_id}",
+                    )
+        except asyncio.CancelledError:
+            logger.debug("[Resend] _resend_undelivered_loop cancelled")
+
     async def send(self, addr: tuple, data: str | bytes, peer_id: str) -> None:
         """Отправить данные ноде. Соединение создаётся по требованию."""
-        writer = self._clients.get(addr)
-        if writer is None or writer.is_closing():
-            writer = await self._connect(addr)
-        if writer is None:
-            return
-        self._peer_ids[addr] = peer_id
         if isinstance(data, str):
             data = data.encode()
-        writer.write(data)
-        await writer.drain()
-        self._last_active[addr] = asyncio.get_event_loop().time()
+
+        last_err: OSError | None = None
+        for attempt in range(1, self.send_retries + 1):
+            try:
+                writer = self._clients.get(addr)
+                if writer is None or writer.is_closing():
+                    writer = await self._connect(addr)
+                if writer is None:
+                    msg = f"Cannot connect to {addr}"
+                    raise OSError(msg)
+                self._peer_ids[addr] = peer_id
+                writer.write(data)
+                await writer.drain()
+                self._last_active[addr] = asyncio.get_event_loop().time()
+            except OSError as e:
+                last_err = e
+                # Drop broken connection so next attempt reconnects
+                old = self._clients.pop(addr, None)
+                if old and not old.is_closing():
+                    old.close()
+                if attempt < self.send_retries:
+                    logger.warning(
+                        f"[TCP] Send to {addr} failed "
+                        f"(attempt {attempt}/{self.send_retries}): {e}. "
+                        f"Retrying in {self.retry_delay}s...",
+                    )
+                    await asyncio.sleep(self.retry_delay)
+            else:
+                return
+
+        logger.error(
+            f"[TCP] Send to {addr} failed after "
+            f"{self.send_retries} attempts: {last_err}",
+        )
 
     async def send_to_peer(self, peer_id: str, data: str | bytes) -> None:
         """Отправить данные пиру через таблицу маршрутизации."""
