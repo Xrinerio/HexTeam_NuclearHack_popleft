@@ -51,7 +51,12 @@ class Routing:
             )
 
     def add_neighbor(
-        self, *, destination: str, name: str, ip: str, port: int
+        self,
+        *,
+        destination: str,
+        name: str,
+        ip: str,
+        port: int,
     ) -> None:
         """Добавить прямого соседа (hops=1)."""
         logger.info(f"Добавлен сосед {destination} ({ip}:{port})")
@@ -117,6 +122,9 @@ class Routing:
         routes: list[dict],
     ) -> None:
         """Обновить таблицу маршрутов по списку из PEER_INFO (Bellman-Ford)."""
+        # Собираем множество destination'ов из новой рекламы
+        advertised_dests: set[str] = set()
+
         for entry in routes:
             dest: str | None = entry.get("destination")
             name: str = entry.get("name", "?")
@@ -124,6 +132,8 @@ class Routing:
 
             if not dest or dest == gateway:
                 continue
+
+            advertised_dests.add(dest)
 
             new_hops = advertised_hops + 1
             if new_hops >= _MAX_DISTANCE:
@@ -141,6 +151,20 @@ class Routing:
                     hops=new_hops,
                 )
 
+        # Удаляем маршруты через gateway, которых больше нет в рекламе
+        stale = [
+            d
+            for d, r in self._table.items()
+            if r.gateway == gateway
+            and d != gateway
+            and d not in advertised_dests
+        ]
+        for dest in stale:
+            logger.info(
+                f"Удалён устаревший маршрут до {dest} (через {gateway})",
+            )
+            del self._table[dest]
+
     def all_routes(self) -> list[_Route]:
         return list(self._table.values())
 
@@ -151,16 +175,18 @@ class Routing:
         rows = sorted(self._table.values(), key=lambda r: r.hops)
 
         col_dest = max(len("Destination"), *(len(r.destination) for r in rows))
+        col_name = max(len("Name"), *(len(r.name) for r in rows))
         col_gateway = max(len("Gateway"), *(len(r.gateway) for r in rows))
         col_ip = max(len("IP"), *(len(r.ip or "-") for r in rows))
         col_hops = max(len("Hops"), *(len(str(r.hops)) for r in rows))
 
         sep = (
-            f"+{'-' * (col_dest + 2)}+{'-' * (col_gateway + 2)}+"
-            f"{'-' * (col_ip + 2)}+{'-' * (col_hops + 2)}+"
+            f"+{'-' * (col_dest + 2)}+{'-' * (col_name + 2)}+"
+            f"{'-' * (col_gateway + 2)}+{'-' * (col_ip + 2)}+{'-' * (col_hops + 2)}+"
         )
         header = (
             f"| {'Destination':<{col_dest}} "
+            f"| {'Name':<{col_name}} "
             f"| {'Gateway':<{col_gateway}} "
             f"| {'IP':<{col_ip}} "
             f"| {'Hops':<{col_hops}} |"
@@ -170,6 +196,7 @@ class Routing:
         lines.extend(
             [
                 f"| {r.destination:<{col_dest}} "
+                f"| {r.name:<{col_name}} "
                 f"| {r.gateway:<{col_gateway}} "
                 f"| {(r.ip or '-'):<{col_ip}} "
                 f"| {r.hops:<{col_hops}} |"

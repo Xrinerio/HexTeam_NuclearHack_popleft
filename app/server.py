@@ -27,7 +27,8 @@ from app.crud.messages import (
 )
 from app.crud.users import save_peer_name
 from app.crypto.crypto import crypto
-from app.network import buffer, routing
+from app.network.buffer import buffer
+from app.network.routing import routing
 from app.network.ws_manager import ws_manager
 from app.protocol import (
     Ack,
@@ -55,6 +56,10 @@ async def _handle_peer_info(
     ip = addr[0]
 
     routing.add_neighbor(destination=peer_id, name=name, ip=ip, port=port)
+
+    # Bind addr → peer_id so that when the TCP connection drops (handle_request
+    # finally-block), remove_routes_via is called even for incoming connections.
+    server.register_peer_addr(addr, peer_id)
 
     # Persist peer name in users table
     if peer_id and name:
@@ -89,6 +94,7 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
     to_id = message.get("to")
     public_key_b64 = message.get("public_key", "")
     ttl = message.get("ttl", 0)
+    is_reply = message.get("is_reply", False)
 
     if to_id != server.peer_id:
         if ttl > 0:
@@ -103,18 +109,30 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
                 )
         return
 
-    first_contact = from_id not in crypto.peers
-    await crypto.add_peer(from_id, public_key_b64)
-    logger.info(f"[Crypto] Stored public key of {from_id}")
+    # Detect if the key is new or changed
+    existing = crypto.peers.get(from_id)
+    new_key_bytes = base64.b64decode(public_key_b64)
+    key_changed = existing is None or bytes(existing) != new_key_bytes
 
-    if first_contact and crypto.public_key is not None:
+    await crypto.add_peer(from_id, public_key_b64)
+    if key_changed:
+        logger.info(
+            f"[Crypto] Stored {'new' if existing is None else 'updated'} public key of {from_id}",
+        )
+    else:
+        logger.debug(f"[Crypto] Received unchanged public key of {from_id}")
+
+    # Always respond to non-reply KEY_EXCHANGEs so both sides stay in sync.
+    # is_reply=True prevents an infinite ping-pong loop.
+    if not is_reply and crypto.public_key is not None:
         kex = KeyExchange(
             from_=server.peer_id,
             to=from_id,
             public_key=_our_public_key_b64(),
+            is_reply=True,
         )
         await server.send_to_peer(from_id, kex.to_bytes())
-        logger.info(f"[Crypto] KEY_EXCHANGE response sent to {from_id}")
+        logger.info(f"[Crypto] KEY_EXCHANGE reply sent to {from_id}")
 
 
 async def _handle_message_packet(server: "Server", message: dict) -> None:
@@ -153,6 +171,21 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
         logger.warning(
             f"[Crypto] Decrypt failed from {from_id}, dropping message",
         )
+        # Stale key — ask the remote peer to re-exchange keys
+        if (
+            routing.get_next_hop_addr(from_id) is not None
+            and server.peer_id
+            and crypto.public_key is not None
+        ):
+            kex = KeyExchange(
+                from_=server.peer_id,
+                to=from_id,
+                public_key=_our_public_key_b64(),
+            )
+            await server.send_to_peer(from_id, kex.to_bytes())
+            logger.info(
+                f"[Crypto] Sent KEY_EXCHANGE to {from_id} after decrypt failure",
+            )
         return
 
     # send ACK back to sender
@@ -226,6 +259,68 @@ def _reassemble_file(
     return b"".join(parts)
 
 
+async def _save_and_finalize_chunk(
+    server: "Server",
+    message: dict,
+    decrypted: bytes,
+) -> None:
+    """Сохраняет чанк на диск и финализирует передачу если все чанки получены."""
+    file_id = message["file_id"]
+    transfer_dir = Path(Settings.FILES_DIR) / file_id
+    transfer_dir.mkdir(parents=True, exist_ok=True)
+    chunk_path = transfer_dir / f"chunk_{message['chunk_index']}"
+
+    if chunk_path.exists():
+        return
+
+    chunk_path.write_bytes(decrypted)
+
+    if get_file_transfer(file_id) is None:
+        create_file_transfer(
+            file_id=file_id,
+            from_peer_id=message["from"],
+            to_peer_id=server.peer_id,
+            filename=message.get("filename", ""),
+            file_size=message.get("file_size", 0),
+            sha256=message.get("sha256", ""),
+            total_chunks=message.get("total_chunks", 0),
+            is_outgoing=False,
+        )
+
+    total = message.get("total_chunks", 0)
+    received = increment_received_chunks(file_id)
+    logger.info(
+        f"[FILE] Chunk {message['chunk_index']}/{total - 1} "
+        f"of {file_id} ({received}/{total})",
+    )
+
+    if received < total:
+        return
+
+    assembled = _reassemble_file(transfer_dir, total)
+    if assembled is None:
+        return
+
+    actual = hashlib.sha256(assembled).hexdigest()
+    expected = message.get("sha256", "")
+    if actual == expected:
+        (transfer_dir / "complete").write_bytes(assembled)
+        complete_file_transfer(file_id)
+        logger.info(f"[FILE] {file_id} received and verified")
+        await ws_manager.broadcast(
+            "file_received",
+            {
+                "file_id": file_id,
+                "filename": message.get("filename", ""),
+                "file_size": message.get("file_size", 0),
+                "from_peer_id": message["from"],
+            },
+        )
+    else:
+        logger.error(f"[FILE] Hash mismatch for {file_id}")
+        fail_file_transfer(file_id)
+
+
 async def _handle_file_chunk(server: "Server", message: dict) -> None:
     to_id = message.get("to")
     ttl = message.get("ttl", 0)
@@ -233,10 +328,14 @@ async def _handle_file_chunk(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(
-                to_id,
-                json.dumps(message).encode(),
-            )
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered FILE_CHUNK",
+                )
         return
 
     if not message.get("encrypted"):
@@ -255,61 +354,28 @@ async def _handle_file_chunk(server: "Server", message: dict) -> None:
             f"[FILE] Decrypt failed for chunk "
             f"{message.get('chunk_index')} of {message.get('file_id')}",
         )
+        # Stale key — ask the remote peer to re-exchange keys
+        chunk_from = message.get("from")
+        if (
+            chunk_from
+            and routing.get_next_hop_addr(chunk_from) is not None
+            and server.peer_id
+            and crypto.public_key is not None
+        ):
+            kex = KeyExchange(
+                from_=server.peer_id,
+                to=chunk_from,
+                public_key=_our_public_key_b64(),
+            )
+            await server.send_to_peer(chunk_from, kex.to_bytes())
+            logger.info(
+                f"[Crypto] Sent KEY_EXCHANGE to {chunk_from} after file decrypt failure",
+            )
         return
 
+    await _save_and_finalize_chunk(server, message, decrypted)
+
     file_id = message["file_id"]
-    transfer_dir = Path(Settings.FILES_DIR) / file_id
-    transfer_dir.mkdir(parents=True, exist_ok=True)
-    chunk_path = transfer_dir / f"chunk_{message['chunk_index']}"
-
-    if not chunk_path.exists():
-        chunk_path.write_bytes(decrypted)
-
-        if get_file_transfer(file_id) is None:
-            create_file_transfer(
-                file_id=file_id,
-                from_peer_id=message["from"],
-                to_peer_id=server.peer_id,
-                filename=message.get("filename", ""),
-                file_size=message.get("file_size", 0),
-                sha256=message.get("sha256", ""),
-                total_chunks=message.get("total_chunks", 0),
-                is_outgoing=False,
-            )
-
-        total = message.get("total_chunks", 0)
-        received = increment_received_chunks(file_id)
-        logger.info(
-            f"[FILE] Chunk {message['chunk_index']}/{total - 1} "
-            f"of {file_id} ({received}/{total})",
-        )
-
-        if received >= total:
-            assembled = _reassemble_file(transfer_dir, total)
-            if assembled is not None:
-                actual = hashlib.sha256(assembled).hexdigest()
-                expected = message.get("sha256", "")
-                if actual == expected:
-                    (transfer_dir / "complete").write_bytes(assembled)
-                    complete_file_transfer(file_id)
-                    logger.info(
-                        f"[FILE] {file_id} received and verified",
-                    )
-                    await ws_manager.broadcast(
-                        "file_received",
-                        {
-                            "file_id": file_id,
-                            "filename": message.get("filename", ""),
-                            "file_size": message.get("file_size", 0),
-                            "from_peer_id": message["from"],
-                        },
-                    )
-                else:
-                    logger.error(
-                        f"[FILE] Hash mismatch for {file_id}",
-                    )
-                    fail_file_transfer(file_id)
-
     # ACK this chunk regardless (idempotent)
     ack = FileAck(
         from_=server.peer_id,
@@ -329,10 +395,14 @@ async def _handle_file_ack(server: "Server", message: dict) -> None:
     if to_id != server.peer_id:
         if ttl > 0:
             message["ttl"] = ttl - 1
-            await server.send_to_peer(
-                to_id,
-                json.dumps(message).encode(),
-            )
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+                logger.debug(
+                    f"[Buffer] No route to {to_id}, buffered FILE_ACK",
+                )
         return
 
     logger.info(
@@ -459,27 +529,43 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        routing.add_neighbor(
-            destination=sender_id,
-            name=name,
-            ip=addr[0],
-            port=pkt.get("port", 0),
-        )
-        await _flush_buffer(self.server)
+        # Не добавляем соседа здесь: получение UDP broadcast не гарантирует
+        # возможность TCP-связи (например, при firewall-блокировке).
+        # Сосед будет добавлен в _handle_peer_info при успешном TCP-обмене.
 
-        await self.server.send(
-            addr=(addr[0], pkt.get("port")),
-            data=json.dumps(
-                {
-                    "type": Type.PEER_INFO.value,
-                    "peer_id": self.server.peer_id,
-                    "name": Settings.USERNAME,  # or socket.gethostname(),
-                    "port": self.server.port,
-                    "routes": routing.get_advertisement(to_node_id=sender_id),
-                },
-            ),
-            peer_id=sender_id,
+        target_addr = (addr[0], pkt.get("port"))
+        peer_info_data = json.dumps(
+            {
+                "type": Type.PEER_INFO.value,
+                "peer_id": self.server.peer_id,
+                "name": Settings.USERNAME,
+                "port": self.server.port,
+                "routes": routing.get_advertisement(to_node_id=sender_id),
+            },
         )
+
+        # Если пир уже известен — отправляем через существующее TCP-соединение.
+        # Если нет — пробуем подключиться ОДИН раз (без ретраев).
+        # Это позволяет найти нового соседа, но не блокирует event loop
+        # длительными ретраями при firewall-блокировке.
+        if routing.get_route(sender_id) is not None:
+            await self.server.send(
+                addr=target_addr,
+                data=peer_info_data,
+                peer_id=sender_id,
+            )
+        else:
+            # Первый контакт: одна попытка TCP без ретраев
+            saved = self.server.send_retries
+            self.server.send_retries = 1
+            try:
+                await self.server.send(
+                    addr=target_addr,
+                    data=peer_info_data,
+                    peer_id=sender_id,
+                )
+            finally:
+                self.server.send_retries = saved
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
@@ -556,6 +642,7 @@ class Server:
             asyncio.create_task(self._idle_cleanup_loop()),
             asyncio.create_task(self._resend_undelivered_loop()),
             asyncio.create_task(self._resend_file_chunks_loop()),
+            asyncio.create_task(self._keepalive_loop()),
         ]
         logger.info("[Server] Background tasks started")
 
@@ -708,12 +795,63 @@ class Server:
                     idle = now - self._last_active.get(addr, now)
                     if idle > self.idle_timeout:
                         writer = self._clients.pop(addr, None)
-                        self._peer_ids.pop(addr, None)
+                        idle_peer_id = self._peer_ids.pop(addr, None)
                         self._last_active.pop(addr, None)
+                        if idle_peer_id:
+                            routing.remove_routes_via(idle_peer_id)
                         if writer and not writer.is_closing():
                             writer.close()
         except asyncio.CancelledError:
             logger.debug("[TCP] _idle_cleanup_loop cancelled")
+
+    async def _keepalive_loop(self) -> None:
+        """Периодически отправляет PEER_INFO прямым соседям по уже открытым
+        TCP-соединениям, чтобы read-timeout на обеих сторонах не срабатывал.
+
+        Важно: используем _peer_ids (addr → peer_id), а не routing-таблицу —
+        это гарантирует запись в существующий TCP-сокет, а не в новое
+        соединение на server-port соседа.
+        """
+        interval = max(5.0, self.idle_timeout / 4)
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                if not self.peer_id:
+                    continue
+                # Снимаем снимок, чтобы не итерироваться по изменяющемуся словарю
+                for addr, peer_id in list(self._peer_ids.items()):
+                    route = routing.get_route(peer_id)
+                    if route is None or route.hops != 1:
+                        continue
+                    writer = self._clients.get(addr)
+                    if writer is None or writer.is_closing():
+                        continue
+                    peer_info = json.dumps(
+                        {
+                            "type": Type.PEER_INFO.value,
+                            "peer_id": self.peer_id,
+                            "name": Settings.USERNAME,
+                            "port": self.port,
+                            "routes": routing.get_advertisement(
+                                to_node_id=peer_id,
+                            ),
+                        },
+                    ).encode()
+                    if not peer_info.endswith(b"\n"):
+                        peer_info += b"\n"
+                    try:
+                        writer.write(peer_info)
+                        await writer.drain()
+                        self._last_active[addr] = (
+                            asyncio.get_event_loop().time()
+                        )
+                        logger.debug(
+                            f"[Keepalive] Sent PEER_INFO to {peer_id} via {addr}",
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+        except asyncio.CancelledError:
+            logger.debug("[Keepalive] _keepalive_loop cancelled")
 
     async def _resend_undelivered_loop(self) -> None:
         """Периодически переотправляет недоставленные исходящие сообщения."""
@@ -919,6 +1057,53 @@ class Server:
         gateway_id = route.gateway if route else peer_id
         await self.send(addr=addr, data=data, peer_id=gateway_id)
 
+    def register_peer_addr(self, addr: tuple, peer_id: str) -> None:
+        """Связать TCP-адрес с peer_id.
+
+        Используется при получении PEER_INFO, чтобы при разрыве
+        соединения можно было удалить маршруты через этого пира.
+        """
+        self._peer_ids[addr] = peer_id
+
+    async def _read_loop(
+        self,
+        reader: asyncio.StreamReader,
+        addr: tuple,
+    ) -> None:
+        """Читает данные из TCP-потока, парсит JSON-сообщения и обрабатывает."""
+        recv_buf = b""
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    reader.read(65536),
+                    timeout=self.idle_timeout,
+                )
+            except TimeoutError:
+                logger.info(
+                    f"[TCP] [{addr}] Read timeout "
+                    f"({self.idle_timeout}s), disconnecting",
+                )
+                break
+            if not data:
+                break
+
+            self._last_active[addr] = asyncio.get_event_loop().time()
+            recv_buf += data
+
+            while b"\n" in recv_buf:
+                line, recv_buf = recv_buf.split(b"\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    message = json.loads(line.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    logger.warning(f"[TCP] [{addr}] Invalid data")
+                    continue
+
+                logger.debug(f"[TCP] [{addr}] >> {message}")
+                await _handle_message(self, message, addr=addr)
+
     async def handle_request(
         self,
         reader: asyncio.StreamReader,
@@ -929,38 +1114,8 @@ class Server:
         self._last_active[addr] = asyncio.get_event_loop().time()
         logger.info(f"[TCP] [+] Connected: {addr}")
 
-        recv_buf = b""
         try:
-            while True:
-                data = await reader.read(65536)
-                if not data:
-                    break
-
-                self._last_active[addr] = asyncio.get_event_loop().time()
-                recv_buf += data
-
-                while b"\n" in recv_buf:
-                    line, recv_buf = recv_buf.split(b"\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        message = json.loads(
-                            line.decode("utf-8"),
-                        )
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        logger.warning(
-                            f"[TCP] [{addr}] Invalid data",
-                        )
-                        continue
-
-                    logger.debug(f"[TCP] [{addr}] >> {message}")
-                    await _handle_message(
-                        self,
-                        message,
-                        addr=addr,
-                    )
-
+            await self._read_loop(reader, addr)
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")
         except asyncio.IncompleteReadError:
@@ -977,4 +1132,7 @@ class Server:
             self._last_active.pop(addr, None)
             logger.info(f"[TCP] [-] Disconnected: {addr}")
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                pass

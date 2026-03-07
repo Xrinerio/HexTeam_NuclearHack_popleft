@@ -32,6 +32,7 @@ class ChatMessageRequest(BaseModel):
 async def get_peers() -> list[dict]:
     """Получить список доступных пиров."""
     routes = routing.get_advertisement(to_node_id="")
+    logger.info(routing)
     # Преобразуем данные маршрутизации в формат для фронтенда
     peers_list = []
     for route_info in routes:

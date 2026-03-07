@@ -12,6 +12,8 @@ class KeyExchange:
     public_key: str
     """Base64-encoded публичный ключ отправителя."""
     ttl: int = 16
+    is_reply: bool = False
+    """True если это ответ на KEY_EXCHANGE — получатель не должен отвечать ещё раз."""
 
     def to_bytes(self) -> bytes:
         return json.dumps(
@@ -21,6 +23,7 @@ class KeyExchange:
                 "to": self.to,
                 "public_key": self.public_key,
                 "ttl": self.ttl,
+                "is_reply": self.is_reply,
             },
         ).encode()
 
@@ -32,4 +35,5 @@ class KeyExchange:
             to=d["to"],
             public_key=d["public_key"],
             ttl=d.get("ttl", 16),
+            is_reply=d.get("is_reply", False),
         )
