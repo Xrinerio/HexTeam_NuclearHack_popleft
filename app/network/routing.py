@@ -9,6 +9,8 @@ _MAX_DISTANCE: int = 16
 class _Route:
     destination: str
     """peer_id цели."""
+    name: str
+    """Имя пира."""
     gateway: str
     """peer_id выхода до цели."""
     ip: str | None
@@ -26,6 +28,7 @@ class Routing:
         self,
         *,
         destination: str,
+        name: str,
         gateway: str,
         ip: str | None,
         hops: int,
@@ -36,15 +39,17 @@ class Routing:
         if route is None or hops < route.hops:
             self._table[destination] = _Route(
                 destination=destination,
+                name=name,
                 gateway=gateway,
                 ip=ip,
                 hops=hops,
             )
 
-    def add_neighbor(self, *, destination: str, ip: str) -> None:
+    def add_neighbor(self, *, destination: str, name: str, ip: str) -> None:
         """Добавить соседа."""
         self._table[destination] = _Route(
             destination=destination,
+            name=name,
             gateway=destination,
             ip=ip,
             hops=1,
