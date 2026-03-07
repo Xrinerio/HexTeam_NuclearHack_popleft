@@ -466,6 +466,9 @@ async def _handle_pong(server: "Server", message: dict) -> None:
 async def _handle_call_offer(server: "Server", message: dict) -> None:
     to_id = message.get("to")
     ttl = message.get("ttl", 0)
+    logger.info(
+        f"[CALL] Received CALL_OFFER to={to_id} me={server.peer_id} ttl={ttl}",
+    )
 
     if to_id != server.peer_id:
         if ttl > 0:
@@ -488,7 +491,10 @@ async def _handle_call_offer(server: "Server", message: dict) -> None:
         "call_offer",
         {"call_id": call_id, "from_peer_id": from_id},
     )
-    logger.info(f"[CALL] Incoming call offer {call_id} from {from_id}")
+    logger.info(
+        f"[CALL] Incoming call offer {call_id} from {from_id}, "
+        f"broadcast to {len(ws_manager._connections)} WS client(s)",
+    )
 
 
 async def _handle_call_answer(server: "Server", message: dict) -> None:
@@ -611,6 +617,8 @@ async def _handle_message(
         await _handle_call_end(server, message)
     elif msg_type == Type.CALL_AUDIO.value:
         await _handle_call_audio(server, message)
+    else:
+        logger.debug(f"[TCP] Unhandled message type: {msg_type}")
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
