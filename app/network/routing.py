@@ -71,59 +71,17 @@ class Routing:
         ]:
             del self._table[dest]
 
-    # def update_from_advertisement(
-    #     self,
-    #     from_node_id: str,
-    #     from_ip: str | None,
-    #     routes: list[dict],
-    # ) -> bool:
-    #     changed = False
-
-    #     # Сам отправитель доступен напрямую за 1 хоп
-    #     existing = self._table.get(from_node_id)
-    #     if existing is None or existing.hops > 1:
-    #         self._table[from_node_id] = Route(
-    #             destination=from_node_id,
-    #             gateway=from_node_id,
-    #             ip=from_ip,
-    #             hops=1,
-    #         )
-    #         changed = True
-
-    #     for entry in routes:
-    #         dest = entry.get("destination")
-    #         advertised_hops = entry.get("hops", self.INFINITY)
-    #         if not dest:
-    #             continue
-
-    #         # Bellman-Ford: стоимость = метрика соседа + 1 хоп до него
-    #         new_hops = advertised_hops + 1
-    #         if new_hops >= self.INFINITY:
-    #             continue
-
-    #         current = self._table.get(dest)
-    #         if current is None or new_hops < current.hops:
-    #             self._table[dest] = Route(
-    #                 destination=dest,
-    #                 gateway=from_node_id,
-    #                 ip=from_ip,
-    #                 hops=new_hops,
-    #             )
-    #             changed = True
-
-    #     return changed
-
-    # def get_advertisement(self, to_node_id: str | None = None) -> list[dict]:
-    #     """Сформировать список маршрутов для рассылки соседям.
-
-    #     Split Horizon: если to_node_id указан, не рекламировать соседу
-    #     маршруты, которые идут через него же (предотвращает count-to-infinity).
-    #     """
-    #     return [
-    #         {"destination": r.destination, "hops": r.hops}
-    #         for r in self._table.values()
-    #         if r.hops < self.INFINITY and r.gateway != to_node_id
-    #     ]
+    def get_advertisement(
+        self,
+        *,
+        to_node_id: str,
+    ) -> list[dict[str, str | int]]:
+        """Сформировать список маршрутов для рассылки соседу to_node_id."""
+        return [
+            {"destination": r.destination, "name": r.name, "hops": r.hops}
+            for r in self._table.values()
+            if r.hops < _MAX_DISTANCE and r.gateway != to_node_id
+        ]
 
     def all_routes(self) -> list[_Route]:
         return list(self._table.values())
