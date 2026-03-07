@@ -4,17 +4,25 @@ import socket
 from typing import Any
 
 from app.core import logger
+from app.network import routing
 from app.protocol import Type
 
 
-async def _handle_message(message: dict[str, Any], server: "Server") -> None:
-    if message.get("type") == Type.PEER_INFO:
+async def _handle_message(server: "Server", message: dict[str, Any], ip: str) -> None:
+    if message.get("type") == Type.PEER_INFO.value:
         peer_id = message.get("peer_id")
         name = message.get("name")
         port = message.get("port")
         logger.info(
             f"Received peer_info: peer_id={peer_id}, name={name}, port={port}",
         )
+        routing.add_neighbor(destination=peer_id, name=name, ip=ip)
+        routing.update_from_advertisement(
+            gateway=peer_id,
+            gateway_ip=ip,
+            routes=message.get("routes"),
+        )
+        print(routing)
     # Сервер передается если нужно будет отправить что то в ответ методом Server.send
     # Здесь логика обработки входящих сообщений от других нод (tcp)
 
@@ -79,7 +87,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
                     "type": Type.PEER_INFO.value,
                     "from": self.peer_id,
                     "tcp_port": self.server.port,
-                    "routes": [],
+                    "routes": routing.get_advertisement(sender_id),
                 },
             ),
         )
@@ -344,7 +352,7 @@ class Server:
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
-                await _handle_message(message, self)
+                await _handle_message(self, message, ip=addr[0])
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")
