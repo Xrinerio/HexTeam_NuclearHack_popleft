@@ -48,6 +48,10 @@ async def _handle_peer_info(
 
     routing.add_neighbor(destination=peer_id, name=name, ip=ip, port=port)
 
+    # Bind addr → peer_id so that when the TCP connection drops (handle_request
+    # finally-block), remove_routes_via is called even for incoming connections.
+    server.register_peer_addr(addr, peer_id)
+
     # Persist peer name in users table
     if peer_id and name:
         save_peer_name(peer_id, name)
@@ -218,6 +222,68 @@ def _reassemble_file(
     return b"".join(parts)
 
 
+async def _save_and_finalize_chunk(
+    server: "Server",
+    message: dict,
+    decrypted: bytes,
+) -> None:
+    """Сохраняет чанк на диск и финализирует передачу если все чанки получены."""
+    file_id = message["file_id"]
+    transfer_dir = Path(Settings.FILES_DIR) / file_id
+    transfer_dir.mkdir(parents=True, exist_ok=True)
+    chunk_path = transfer_dir / f"chunk_{message['chunk_index']}"
+
+    if chunk_path.exists():
+        return
+
+    chunk_path.write_bytes(decrypted)
+
+    if get_file_transfer(file_id) is None:
+        create_file_transfer(
+            file_id=file_id,
+            from_peer_id=message["from"],
+            to_peer_id=server.peer_id,
+            filename=message.get("filename", ""),
+            file_size=message.get("file_size", 0),
+            sha256=message.get("sha256", ""),
+            total_chunks=message.get("total_chunks", 0),
+            is_outgoing=False,
+        )
+
+    total = message.get("total_chunks", 0)
+    received = increment_received_chunks(file_id)
+    logger.info(
+        f"[FILE] Chunk {message['chunk_index']}/{total - 1} "
+        f"of {file_id} ({received}/{total})",
+    )
+
+    if received < total:
+        return
+
+    assembled = _reassemble_file(transfer_dir, total)
+    if assembled is None:
+        return
+
+    actual = hashlib.sha256(assembled).hexdigest()
+    expected = message.get("sha256", "")
+    if actual == expected:
+        (transfer_dir / "complete").write_bytes(assembled)
+        complete_file_transfer(file_id)
+        logger.info(f"[FILE] {file_id} received and verified")
+        await ws_manager.broadcast(
+            "file_received",
+            {
+                "file_id": file_id,
+                "filename": message.get("filename", ""),
+                "file_size": message.get("file_size", 0),
+                "from_peer_id": message["from"],
+            },
+        )
+    else:
+        logger.error(f"[FILE] Hash mismatch for {file_id}")
+        fail_file_transfer(file_id)
+
+
 async def _handle_file_chunk(server: "Server", message: dict) -> None:
     to_id = message.get("to")
     ttl = message.get("ttl", 0)
@@ -253,59 +319,9 @@ async def _handle_file_chunk(server: "Server", message: dict) -> None:
         )
         return
 
+    await _save_and_finalize_chunk(server, message, decrypted)
+
     file_id = message["file_id"]
-    transfer_dir = Path(Settings.FILES_DIR) / file_id
-    transfer_dir.mkdir(parents=True, exist_ok=True)
-    chunk_path = transfer_dir / f"chunk_{message['chunk_index']}"
-
-    if not chunk_path.exists():
-        chunk_path.write_bytes(decrypted)
-
-        if get_file_transfer(file_id) is None:
-            create_file_transfer(
-                file_id=file_id,
-                from_peer_id=message["from"],
-                to_peer_id=server.peer_id,
-                filename=message.get("filename", ""),
-                file_size=message.get("file_size", 0),
-                sha256=message.get("sha256", ""),
-                total_chunks=message.get("total_chunks", 0),
-                is_outgoing=False,
-            )
-
-        total = message.get("total_chunks", 0)
-        received = increment_received_chunks(file_id)
-        logger.info(
-            f"[FILE] Chunk {message['chunk_index']}/{total - 1} "
-            f"of {file_id} ({received}/{total})",
-        )
-
-        if received >= total:
-            assembled = _reassemble_file(transfer_dir, total)
-            if assembled is not None:
-                actual = hashlib.sha256(assembled).hexdigest()
-                expected = message.get("sha256", "")
-                if actual == expected:
-                    (transfer_dir / "complete").write_bytes(assembled)
-                    complete_file_transfer(file_id)
-                    logger.info(
-                        f"[FILE] {file_id} received and verified",
-                    )
-                    await ws_manager.broadcast(
-                        "file_received",
-                        {
-                            "file_id": file_id,
-                            "filename": message.get("filename", ""),
-                            "file_size": message.get("file_size", 0),
-                            "from_peer_id": message["from"],
-                        },
-                    )
-                else:
-                    logger.error(
-                        f"[FILE] Hash mismatch for {file_id}",
-                    )
-                    fail_file_transfer(file_id)
-
     # ACK this chunk regardless (idempotent)
     ack = FileAck(
         from_=server.peer_id,
@@ -663,8 +679,10 @@ class Server:
                     idle = now - self._last_active.get(addr, now)
                     if idle > self.idle_timeout:
                         writer = self._clients.pop(addr, None)
-                        self._peer_ids.pop(addr, None)
+                        idle_peer_id = self._peer_ids.pop(addr, None)
                         self._last_active.pop(addr, None)
+                        if idle_peer_id:
+                            routing.remove_routes_via(idle_peer_id)
                         if writer and not writer.is_closing():
                             writer.close()
         except asyncio.CancelledError:
@@ -873,6 +891,14 @@ class Server:
         route = routing.get_route(peer_id)
         gateway_id = route.gateway if route else peer_id
         await self.send(addr=addr, data=data, peer_id=gateway_id)
+
+    def register_peer_addr(self, addr: tuple, peer_id: str) -> None:
+        """Связать TCP-адрес с peer_id.
+
+        Используется при получении PEER_INFO, чтобы при разрыве
+        соединения можно было удалить маршруты через этого пира.
+        """
+        self._peer_ids[addr] = peer_id
 
     async def handle_request(
         self,

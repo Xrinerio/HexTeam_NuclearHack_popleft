@@ -51,7 +51,12 @@ class Routing:
             )
 
     def add_neighbor(
-        self, *, destination: str, name: str, ip: str, port: int
+        self,
+        *,
+        destination: str,
+        name: str,
+        ip: str,
+        port: int,
     ) -> None:
         """Добавить прямого соседа (hops=1)."""
         logger.info(f"Добавлен сосед {destination} ({ip}:{port})")
@@ -117,6 +122,21 @@ class Routing:
         routes: list[dict],
     ) -> None:
         """Обновить таблицу маршрутов по списку из PEER_INFO (Bellman-Ford)."""
+        # Remove all indirect routes previously learned via this gateway.
+        # This ensures that if a destination disappeared from the advertisement
+        # (because it went offline), we don't keep a stale route to it.
+        # The gateway's own direct route (destination == gateway) is preserved.
+        stale = [
+            d
+            for d, r in self._table.items()
+            if r.gateway == gateway and d != gateway
+        ]
+        for dest in stale:
+            logger.info(
+                f"Удалён устаревший маршрут до {dest} (через {gateway})"
+            )
+            del self._table[dest]
+
         for entry in routes:
             dest: str | None = entry.get("destination")
             name: str = entry.get("name", "?")
