@@ -83,6 +83,36 @@ class Routing:
             if r.hops < _MAX_DISTANCE and r.gateway != to_node_id
         ]
 
+    def update_from_advertisement(
+        self,
+        *,
+        gateway: str,
+        gateway_ip: str,
+        routes: list[dict],
+    ) -> None:
+        """Обновить таблицу маршрутов по списку из PEER_INFO."""
+        for entry in routes:
+            dest: str | None = entry.get("destination")
+            name: str = entry.get("name", "?")
+            advertised_hops: int = entry.get("hops", _MAX_DISTANCE)
+
+            if not dest or dest == gateway:
+                continue
+
+            new_hops = advertised_hops + 1
+            if new_hops >= _MAX_DISTANCE:
+                continue
+
+            current = self._table.get(dest)
+            if current is None or new_hops < current.hops:
+                self._table[dest] = _Route(
+                    destination=dest,
+                    name=name,
+                    gateway=gateway,
+                    ip=gateway_ip,
+                    hops=new_hops,
+                )
+
     def all_routes(self) -> list[_Route]:
         return list(self._table.values())
 
