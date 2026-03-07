@@ -432,13 +432,9 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        routing.add_neighbor(
-            destination=sender_id,
-            name=name,
-            ip=addr[0],
-            port=pkt.get("port", 0),
-        )
-        await _flush_buffer(self.server)
+        # НЕ добавляем соседа здесь: получение UDP broadcast не гарантирует
+        # возможность TCP-связи (например, при firewall-блокировке).
+        # Сосед будет добавлен в _handle_peer_info при успешном TCP-обмене.
 
         await self.server.send(
             addr=(addr[0], pkt.get("port")),
