@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core import logger
-from app.crud.messages import get_chat_messages, save_message
+from app.crud.messages import get_chat_messages, get_chat_peer_ids, save_message
 from app.crypto.crypto import crypto
 from app.network import routing
 from app.network.ws_manager import ws_manager
@@ -111,7 +111,8 @@ async def send_chat_message(body: ChatMessageRequest, request: Request) -> dict:
 
     if routing.get_route(peer_id) is None:
         raise HTTPException(
-            status_code=404, detail=f"No route to peer {peer_id!r}"
+            status_code=404,
+            detail=f"No route to peer {peer_id!r}",
         )
 
     if peer_id not in crypto.peers:
@@ -159,6 +160,12 @@ async def send_chat_message(body: ChatMessageRequest, request: Request) -> dict:
 @router.get("/messages/{peer_id}")
 async def get_messages(peer_id: str) -> list[dict]:
     return get_chat_messages(peer_id)
+
+
+@router.get("/chats")
+async def get_chats() -> list[str]:
+    """Return peer_ids that have message history."""
+    return get_chat_peer_ids()
 
 
 @router.websocket("/ws")
