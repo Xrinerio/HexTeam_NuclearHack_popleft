@@ -1,10 +1,17 @@
 import sqlite3
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.crud.users import create_user, get_user, username_exists
+from app.core import Settings
+from app.crud.users import (
+    create_user,
+    get_current_user,
+    get_user,
+    username_exists,
+)
+from app.database import database
 
 router: APIRouter = APIRouter()
 
@@ -20,7 +27,12 @@ class UserResponse(BaseModel):
 
 
 @router.post("/register", status_code=201)
-async def register(body: RegisterRequest) -> UserResponse:
+async def register(body: RegisterRequest, request: Request) -> UserResponse:
+    if get_current_user() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This node is already registered. Restart to apply.",
+        )
     if username_exists(body.username):
         raise HTTPException(
             status_code=409,
@@ -29,6 +41,15 @@ async def register(body: RegisterRequest) -> UserResponse:
 
     peer_id = str(uuid4())
     row: sqlite3.Row = create_user(peer_id=peer_id, username=body.username)
+
+    # Обновляем identity в настройках и в работающем сервере
+    Settings.PEER_ID = peer_id
+    Settings.USERNAME = body.username
+    request.app.state.server.peer_id = peer_id
+
+    # Удаляем невалидные ключи с пустым peer_id, если они накопились до регистрации
+    database.execute("DELETE FROM keys WHERE peer_id = ''")
+
     return UserResponse(
         peer_id=row["peer_id"],
         username=row["username"],
@@ -41,7 +62,8 @@ async def get_user_info(peer_id: str) -> UserResponse:
     row = get_user(peer_id)
     if row is None:
         raise HTTPException(
-            status_code=404, detail=f"User {peer_id!r} not found."
+            status_code=404,
+            detail=f"User {peer_id!r} not found.",
         )
     return UserResponse(
         peer_id=row["peer_id"],

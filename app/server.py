@@ -4,7 +4,7 @@ import json
 import socket
 from typing import Any
 
-from app.core import logger
+from app.core import Settings, logger
 from app.crypto.crypto import crypto
 from app.network import routing
 from app.protocol import KeyExchange, Type
@@ -121,14 +121,10 @@ async def _handle_message(
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
     def __init__(
         self,
-        peer_id: str,
-        name: str,
         discovery_interval: float,
         discovery_port: int,
         server: "Server",
     ) -> None:
-        self.peer_id = peer_id
-        self.name = name
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
         self.server = server
@@ -155,7 +151,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return
 
         sender_id = pkt.get("peer_id")
-        if sender_id == self.peer_id:
+        if not self.server.peer_id or sender_id == self.server.peer_id:
             return
 
         name = pkt.get("name", "?")
@@ -185,8 +181,8 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             data=json.dumps(
                 {
                     "type": Type.PEER_INFO.value,
-                    "peer_id": self.peer_id,
-                    "name": self.name,
+                    "peer_id": self.server.peer_id,
+                    "name": Settings.USERNAME,  # or socket.gethostname(),
                     "port": self.server.port,
                     "routes": routing.get_advertisement(to_node_id=sender_id),
                 },
@@ -301,12 +297,8 @@ class Server:
         udp_sock.bind(("0.0.0.0", self.discovery_port))
         logger.debug(f"[UDP] Socket bound to port {self.discovery_port}")
 
-        from app.core import Settings
-
         self._udp_transport, _ = await loop.create_datagram_endpoint(
             lambda: UDPBroadcastProtocol(
-                peer_id=self.peer_id,
-                name=Settings.USERNAME or socket.gethostname(),
                 discovery_interval=self.discovery_interval,
                 discovery_port=self.discovery_port,
                 server=self,
@@ -330,17 +322,6 @@ class Server:
 
     async def _broadcast_loop(self) -> None:
         """Периодически рассылает UDP hello через каждый сетевой интерфейс."""
-        from app.core import Settings
-
-        pkt = json.dumps(
-            {
-                "type": "HELLO",
-                "peer_id": self.peer_id,
-                "name": Settings.USERNAME or socket.gethostname(),
-                "port": self.port,
-            },
-        ).encode()
-
         logger.debug("[UDP] _broadcast_loop started")
         socks: list[socket.socket] = []
         try:
@@ -348,6 +329,19 @@ class Server:
                 for s in socks:
                     s.close()
                 socks.clear()
+
+                if not self.peer_id:
+                    await asyncio.sleep(self.discovery_interval)
+                    continue
+
+                pkt = json.dumps(
+                    {
+                        "type": "HELLO",
+                        "peer_id": self.peer_id,
+                        "name": Settings.USERNAME or socket.gethostname(),
+                        "port": self.port,
+                    },
+                ).encode()
 
                 local_ips = self._get_local_ips()
                 if not local_ips:
