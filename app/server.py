@@ -442,7 +442,7 @@ async def _handle_ping(server: "Server", message: dict) -> None:
     )
     await server.send_to_peer(message["from"], pong.to_bytes())
     logger.info(
-        f"[PING] Received ping {message['ping_id']} from {message['from']}, pong sent"
+        f"[PING] Received ping {message['ping_id']} from {message['from']}, pong sent",
     )
 
 
@@ -617,6 +617,9 @@ class Server:
                 self.port,
                 reuse_address=True,
             )
+            # Disable Nagle on listening sockets
+            for s in self.server.sockets:
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError as e:
             logger.error(
                 f"[Server] Failed to bind TCP on {self.host}:{self.port} — {e}",
@@ -772,6 +775,9 @@ class Server:
         logger.info(f"[TCP] Connecting to {addr}...")
         try:
             reader, writer = await asyncio.open_connection(*addr)
+            sock = writer.get_extra_info("socket")
+            if sock is not None:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._clients[addr] = writer
             self._last_active[addr] = asyncio.get_event_loop().time()
             task = asyncio.create_task(self.handle_request(reader, writer))
@@ -1110,6 +1116,9 @@ class Server:
         writer: asyncio.StreamWriter,
     ) -> None:
         addr: tuple[Any, ...] = writer.get_extra_info("peername")
+        sock = writer.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._clients[addr] = writer
         self._last_active[addr] = asyncio.get_event_loop().time()
         logger.info(f"[TCP] [+] Connected: {addr}")
