@@ -7,7 +7,7 @@ from typing import Any
 from app.core import Settings, logger
 from app.crypto.crypto import crypto
 from app.network import routing
-from app.protocol import KeyExchange, Type
+from app.protocol import Ack, KeyExchange, Type
 
 
 def _our_public_key_b64() -> str:
@@ -90,7 +90,38 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
             f"[Crypto] Decrypt failed from {from_id}, dropping message",
         )
         return
+
+    # send ACK back to sender
+    message_id = message.get("id", "")
+    ack = Ack(
+        from_=server.peer_id,
+        to=from_id,
+        message_id=message_id,
+    )
+    await server.send_to_peer(from_id, ack.to_bytes())
+    logger.info(f"[ACK] Sent ACK for message {message_id} to {from_id}")
     # deliver to chat (store in DB, push to WebSocket etc.)
+
+
+async def _handle_ack(server: "Server", message: dict) -> None:
+    from_id = message.get("from")
+    to_id = message.get("to")
+    message_id = message.get("message_id", "")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(to_id, json.dumps(message).encode())
+        else:
+            logger.warning(
+                f"[ACK] TTL=0, dropping ACK for message {message_id}"
+            )
+        return
+
+    logger.info(
+        f"[ACK] Message {message_id} successfully delivered to {from_id}",
+    )
 
 
 async def _handle_message(
@@ -106,6 +137,8 @@ async def _handle_message(
         await _handle_key_exchange(server, message)
     elif msg_type == Type.MESSAGE.value:
         await _handle_message_packet(server, message)
+    elif msg_type == Type.ACK.value:
+        await _handle_ack(server, message)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
