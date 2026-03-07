@@ -114,7 +114,7 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
     new_key_bytes = base64.b64decode(public_key_b64)
     key_changed = existing is None or bytes(existing) != new_key_bytes
 
-    await crypto.add_peer(from_id, public_key_b64)
+    await crypto.add_peer(from_id, public_key_b64, reset_verified=key_changed)
     if key_changed:
         logger.info(
             f"[Crypto] Stored {'new' if existing is None else 'updated'} public key of {from_id}",
