@@ -606,6 +606,201 @@
             gap: 12px;
         }
 
+        /* Voice Call UI */
+        .call-btn {
+            padding: 6px 12px;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            margin-left: 8px;
+        }
+
+        .call-btn:hover {
+            background: #2ea043;
+        }
+
+        .call-btn:disabled {
+            background: #2d3139;
+            color: #6e7681;
+            cursor: not-allowed;
+        }
+
+        .call-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.88);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .call-overlay.hidden {
+            display: none;
+        }
+
+        .call-incoming-box {
+            background: #22252b;
+            border: 1px solid #2d3139;
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            min-width: 320px;
+        }
+
+        .call-incoming-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            animation: call-ring 1s ease-in-out infinite;
+        }
+
+        @keyframes call-ring {
+            0%, 100% { transform: rotate(0deg); }
+            15% { transform: rotate(15deg); }
+            30% { transform: rotate(-15deg); }
+            45% { transform: rotate(10deg); }
+            60% { transform: rotate(-10deg); }
+        }
+
+        .call-incoming-title {
+            font-size: 1rem;
+            color: #8b949e;
+            margin-bottom: 8px;
+        }
+
+        .call-incoming-name {
+            font-size: 1.4rem;
+            color: #f0f6fc;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        .call-incoming-avatar {
+            width: 64px;
+            height: 64px;
+            border-radius: 20%;
+            image-rendering: pixelated;
+            margin-bottom: 16px;
+        }
+
+        .call-incoming-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        .call-accept-btn, .call-reject-btn {
+            padding: 12px 28px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+        }
+
+        .call-accept-btn {
+            background: #238636;
+            color: #fff;
+        }
+
+        .call-accept-btn:hover {
+            background: #2ea043;
+        }
+
+        .call-reject-btn {
+            background: #da3633;
+            color: #fff;
+        }
+
+        .call-reject-btn:hover {
+            background: #f85149;
+        }
+
+        .call-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            background: #1c3a1c;
+            border-bottom: 1px solid #238636;
+        }
+
+        .call-bar-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #3fb950;
+            animation: call-pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes call-pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,0.5); }
+            50% { opacity: 0.7; box-shadow: 0 0 8px 4px rgba(63,185,80,0.3); }
+        }
+
+        .call-bar-info {
+            flex: 1;
+            font-size: 0.8rem;
+            color: #3fb950;
+        }
+
+        .call-bar-timer {
+            font-size: 0.85rem;
+            color: #3fb950;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .call-mute-btn {
+            padding: 6px 12px;
+            background: #2d3139;
+            color: #c9d1d9;
+            border: 1px solid #3d4149;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+        }
+
+        .call-mute-btn:hover {
+            background: #3d4149;
+        }
+
+        .call-mute-btn.muted {
+            background: #da3633;
+            color: #fff;
+            border-color: #da3633;
+        }
+
+        .call-end-btn {
+            padding: 6px 14px;
+            background: #da3633;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+        }
+
+        .call-end-btn:hover {
+            background: #f85149;
+        }
+
         /* Модальное окно для ввода имени */
         .modal-overlay {
             position: fixed;
@@ -916,6 +1111,17 @@
                 верификацию</button>
             <button class="safety-close-btn"
                 id="safety-close-btn">Закрыть</button>
+    <!-- Входящий звонок -->
+    <div class="call-overlay hidden" id="call-incoming">
+        <div class="call-incoming-box">
+            <div class="call-incoming-icon">📞</div>
+            <img class="call-incoming-avatar" id="call-incoming-avatar">
+            <div class="call-incoming-title">Входящий звонок</div>
+            <div class="call-incoming-name" id="call-incoming-name">—</div>
+            <div class="call-incoming-actions">
+                <button class="call-accept-btn" id="call-accept-btn">Принять</button>
+                <button class="call-reject-btn" id="call-reject-btn">Отклонить</button>
+            </div>
         </div>
     </div>
 
@@ -943,6 +1149,9 @@
         let pingResults = {};   // peer_id -> { rtt_ms, time_to_target_ms, time_from_target_ms }
         let pingedPeers = new Set(); // peers already auto-pinged this session
         let ws = null;
+        let currentCall = null; // { call_id, peer_id, state, muted, seq, stream, captureCtx, processor, playCtx, nextPlayTime, timerInterval, startTime }
+        let incomingCall = null; // { call_id, from_peer_id }
+        const CALL_SAMPLE_RATE = 16000;
 
         // ─── Avatar Generation (identicon) ─────────────────────
         const avatarCache = {};
@@ -1054,6 +1263,16 @@
                 // Outgoing file fully delivered
                 const peerId = data.to_peer_id;
                 updateFileTransferStatus(peerId, data.file_id, 'completed');
+            } else if (event === 'call_offer') {
+                handleIncomingCall(data);
+            } else if (event === 'call_answer') {
+                handleCallAnswer(data);
+            } else if (event === 'call_ended') {
+                handleCallEnded(data);
+            } else if (event === 'call_audio') {
+                if (currentCall && currentCall.state === 'active') {
+                    playAudioChunk(data.audio);
+                }
             }
         }
 
@@ -1306,6 +1525,20 @@
                 ? `<span class="chat-header-ping">${pingText ? '' + escapeHtml(pingText) : ''}<button class="ping-btn" id="chat-ping-btn">Ping</button></span>`
                 : '';
 
+            const callBtnHtml = selectedPeer.online && !(currentCall && currentCall.state === 'active')
+                ? `<button class="call-btn" id="chat-call-btn">📞 Звонок</button>`
+                : '';
+
+            const callBarHtml = currentCall && currentCall.state === 'active' && currentCall.peer_id === selectedPeer.node_id
+                ? `<div class="call-bar">
+                    <div class="call-bar-indicator"></div>
+                    <div class="call-bar-info">Звонок с ${escapeHtml(selectedPeer.name)}</div>
+                    <div class="call-bar-timer" id="call-timer">00:00</div>
+                    <button class="call-mute-btn${currentCall.muted ? ' muted' : ''}" id="call-mute-btn">${currentCall.muted ? '🔇' : '🔊'}</button>
+                    <button class="call-end-btn" id="call-end-btn">Завершить</button>
+                  </div>`
+                : '';
+
             const chatAvatar = generateAvatar(selectedPeer.node_id, 40);
             panel.innerHTML = `
                 <div class="chat-header">
@@ -1322,6 +1555,7 @@
                         </div>
                     </div>
                 </div>
+                ${callBarHtml}
                 <div class="chat-messages" id="chat-messages">
                     <div class="empty-msg">Загрузка сообщений...</div>
                 </div>
@@ -1379,6 +1613,27 @@
                     fileInput.value = "";
                 }
             });
+
+            // Call button
+            const callBtn = document.getElementById("chat-call-btn");
+            if (callBtn) {
+                callBtn.addEventListener("click", () => startCall(selectedPeer.node_id));
+            }
+
+            // Active call bar buttons
+            const muteBtn = document.getElementById("call-mute-btn");
+            if (muteBtn) {
+                muteBtn.addEventListener("click", toggleMute);
+            }
+            const endBtn = document.getElementById("call-end-btn");
+            if (endBtn) {
+                endBtn.addEventListener("click", endCall);
+            }
+
+            // Update call timer if active
+            if (currentCall && currentCall.state === 'active' && currentCall.peer_id === selectedPeer.node_id) {
+                updateCallTimerDisplay();
+            }
         }
 
         // Загрузка сообщений
@@ -1819,6 +2074,322 @@
                 console.error("Ошибка отправки файла:", err);
                 alert("Не удалось отправить файл");
             }
+        }
+
+        // ─── Voice Call Functions ───────────────────────────────────
+
+        async function startCall(peerId) {
+            if (currentCall) return;
+            try {
+                const res = await fetch("/api/call/offer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ peer_id: peerId }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert(err.detail || "Не удалось начать звонок");
+                    return;
+                }
+                const data = await res.json();
+                currentCall = {
+                    call_id: data.call_id,
+                    peer_id: peerId,
+                    state: 'offering',
+                    muted: false,
+                    seq: 0,
+                    stream: null,
+                    captureCtx: null,
+                    processor: null,
+                    playCtx: null,
+                    nextPlayTime: 0,
+                    timerInterval: null,
+                    startTime: null,
+                };
+                renderChat();
+                if (selectedPeer) loadMessages(selectedPeer.node_id);
+            } catch (err) {
+                console.error("Call offer error:", err);
+                alert("Ошибка при начале звонка");
+            }
+        }
+
+        function handleIncomingCall(data) {
+            if (currentCall) {
+                // Already in a call - auto-reject
+                fetch("/api/call/answer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ call_id: data.call_id, accepted: false }),
+                });
+                return;
+            }
+            incomingCall = data;
+            const overlay = document.getElementById("call-incoming");
+            const nameEl = document.getElementById("call-incoming-name");
+            const avatarEl = document.getElementById("call-incoming-avatar");
+            nameEl.textContent = contactNames[data.from_peer_id] || data.from_peer_id.slice(0, 12);
+            avatarEl.src = generateAvatar(data.from_peer_id, 64);
+            overlay.classList.remove("hidden");
+
+            document.getElementById("call-accept-btn").onclick = () => answerCall(true);
+            document.getElementById("call-reject-btn").onclick = () => answerCall(false);
+        }
+
+        async function answerCall(accepted) {
+            if (!incomingCall) return;
+            const overlay = document.getElementById("call-incoming");
+            overlay.classList.add("hidden");
+
+            try {
+                await fetch("/api/call/answer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ call_id: incomingCall.call_id, accepted }),
+                });
+            } catch (err) {
+                console.error("Call answer error:", err);
+            }
+
+            if (accepted) {
+                currentCall = {
+                    call_id: incomingCall.call_id,
+                    peer_id: incomingCall.from_peer_id,
+                    state: 'active',
+                    muted: false,
+                    seq: 0,
+                    stream: null,
+                    captureCtx: null,
+                    processor: null,
+                    playCtx: null,
+                    nextPlayTime: 0,
+                    timerInterval: null,
+                    startTime: Date.now(),
+                };
+                await startAudio();
+                renderChat();
+                if (selectedPeer) loadMessages(selectedPeer.node_id);
+            }
+            incomingCall = null;
+        }
+
+        function handleCallAnswer(data) {
+            if (!currentCall || currentCall.call_id !== data.call_id) return;
+            if (data.accepted) {
+                currentCall.state = 'active';
+                currentCall.startTime = Date.now();
+                startAudio();
+                renderChat();
+                if (selectedPeer) loadMessages(selectedPeer.node_id);
+            } else {
+                currentCall = null;
+                renderChat();
+                if (selectedPeer) loadMessages(selectedPeer.node_id);
+            }
+        }
+
+        function handleCallEnded(data) {
+            if (!currentCall || currentCall.call_id !== data.call_id) return;
+            stopAudio();
+            currentCall = null;
+            renderChat();
+            if (selectedPeer) loadMessages(selectedPeer.node_id);
+        }
+
+        async function endCall() {
+            if (!currentCall) return;
+            try {
+                await fetch("/api/call/end", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ call_id: currentCall.call_id }),
+                });
+            } catch (err) {
+                console.error("Call end error:", err);
+            }
+            stopAudio();
+            currentCall = null;
+            renderChat();
+            if (selectedPeer) loadMessages(selectedPeer.node_id);
+        }
+
+        function toggleMute() {
+            if (!currentCall) return;
+            currentCall.muted = !currentCall.muted;
+            if (currentCall.stream) {
+                currentCall.stream.getAudioTracks().forEach(t => {
+                    t.enabled = !currentCall.muted;
+                });
+            }
+            const btn = document.getElementById("call-mute-btn");
+            if (btn) {
+                btn.textContent = currentCall.muted ? '🔇' : '🔊';
+                btn.classList.toggle('muted', currentCall.muted);
+            }
+        }
+
+        function updateCallTimerDisplay() {
+            if (!currentCall || !currentCall.startTime) return;
+            const el = document.getElementById("call-timer");
+            if (!el) return;
+            const update = () => {
+                if (!currentCall || !currentCall.startTime) return;
+                const elapsed = Math.floor((Date.now() - currentCall.startTime) / 1000);
+                const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                const s = String(elapsed % 60).padStart(2, '0');
+                const timerEl = document.getElementById("call-timer");
+                if (timerEl) timerEl.textContent = m + ':' + s;
+            };
+            update();
+            if (currentCall.timerInterval) clearInterval(currentCall.timerInterval);
+            currentCall.timerInterval = setInterval(update, 1000);
+        }
+
+        // ─── Audio Capture & Playback ──────────────────────────────
+
+        async function startAudio() {
+            if (!currentCall) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                currentCall.stream = stream;
+
+                // Capture context
+                const captureCtx = new (window.AudioContext || window.webkitAudioContext)();
+                currentCall.captureCtx = captureCtx;
+                const source = captureCtx.createMediaStreamSource(stream);
+                const processor = captureCtx.createScriptProcessor(2048, 1, 1);
+                currentCall.processor = processor;
+
+                source.connect(processor);
+                processor.connect(captureCtx.destination);
+
+                processor.onaudioprocess = (e) => {
+                    if (!currentCall || currentCall.state !== 'active' || currentCall.muted) {
+                        // Zero output to silence local playback
+                        const out = e.outputBuffer.getChannelData(0);
+                        for (let i = 0; i < out.length; i++) out[i] = 0;
+                        return;
+                    }
+                    const input = e.inputBuffer.getChannelData(0);
+                    // Zero output to prevent echo
+                    const out = e.outputBuffer.getChannelData(0);
+                    for (let i = 0; i < out.length; i++) out[i] = 0;
+
+                    // Downsample to 16kHz
+                    const ratio = captureCtx.sampleRate / CALL_SAMPLE_RATE;
+                    const downLen = Math.floor(input.length / ratio);
+                    const int16 = new Int16Array(downLen);
+                    for (let i = 0; i < downLen; i++) {
+                        const s = Math.max(-1, Math.min(1, input[Math.round(i * ratio)]));
+                        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+
+                    // Base64 encode
+                    const uint8 = new Uint8Array(int16.buffer);
+                    let binary = '';
+                    for (let i = 0; i < uint8.length; i++) {
+                        binary += String.fromCharCode(uint8[i]);
+                    }
+                    const b64 = btoa(binary);
+
+                    // Send via WebSocket
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            event: 'call_audio',
+                            data: {
+                                call_id: currentCall.call_id,
+                                peer_id: currentCall.peer_id,
+                                seq: currentCall.seq++,
+                                audio: b64,
+                            }
+                        }));
+                    }
+                };
+
+                // Playback context
+                currentCall.playCtx = new (window.AudioContext || window.webkitAudioContext)();
+                currentCall.nextPlayTime = 0;
+
+                updateCallTimerDisplay();
+            } catch (err) {
+                console.error("Failed to start audio:", err);
+                alert("Не удалось получить доступ к микрофону");
+                endCall();
+            }
+        }
+
+        function stopAudio() {
+            if (!currentCall) return;
+            if (currentCall.timerInterval) {
+                clearInterval(currentCall.timerInterval);
+                currentCall.timerInterval = null;
+            }
+            if (currentCall.processor) {
+                currentCall.processor.disconnect();
+                currentCall.processor.onaudioprocess = null;
+                currentCall.processor = null;
+            }
+            if (currentCall.captureCtx) {
+                currentCall.captureCtx.close();
+                currentCall.captureCtx = null;
+            }
+            if (currentCall.stream) {
+                currentCall.stream.getTracks().forEach(t => t.stop());
+                currentCall.stream = null;
+            }
+            if (currentCall.playCtx) {
+                currentCall.playCtx.close();
+                currentCall.playCtx = null;
+            }
+        }
+
+        function playAudioChunk(b64) {
+            if (!currentCall || !currentCall.playCtx) return;
+            const playCtx = currentCall.playCtx;
+
+            // Decode base64 → Int16 PCM
+            const raw = atob(b64);
+            const uint8 = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) {
+                uint8[i] = raw.charCodeAt(i);
+            }
+            const int16 = new Int16Array(uint8.buffer);
+
+            // Convert to Float32
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) {
+                float32[i] = int16[i] / 32768;
+            }
+
+            // Upsample from 16kHz to playback context sample rate
+            const targetRate = playCtx.sampleRate;
+            let samples = float32;
+            if (targetRate !== CALL_SAMPLE_RATE) {
+                const ratio = targetRate / CALL_SAMPLE_RATE;
+                const newLen = Math.round(float32.length * ratio);
+                samples = new Float32Array(newLen);
+                for (let i = 0; i < newLen; i++) {
+                    const srcIdx = i / ratio;
+                    const i0 = Math.floor(srcIdx);
+                    const i1 = Math.min(i0 + 1, float32.length - 1);
+                    const frac = srcIdx - i0;
+                    samples[i] = float32[i0] * (1 - frac) + float32[i1] * frac;
+                }
+            }
+
+            // Schedule playback with jitter buffer
+            const buffer = playCtx.createBuffer(1, samples.length, targetRate);
+            buffer.copyToChannel(samples, 0);
+            const source = playCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(playCtx.destination);
+
+            const now = playCtx.currentTime;
+            if (currentCall.nextPlayTime < now) {
+                currentCall.nextPlayTime = now + 0.06; // 60ms jitter buffer
+            }
+            source.start(currentCall.nextPlayTime);
+            currentCall.nextPlayTime += buffer.duration;
         }
     </script>
 </body>

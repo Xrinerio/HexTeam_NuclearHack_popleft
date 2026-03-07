@@ -463,6 +463,123 @@ async def _handle_pong(server: "Server", message: dict) -> None:
         logger.info(f"[PONG] Received pong {ping_id} from {message['from']}")
 
 
+async def _handle_call_offer(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+            else:
+                buffer.add(to_id, data)
+        return
+
+    call_id = message["call_id"]
+    from_id = message["from"]
+    server.active_calls[call_id] = {
+        "peer_a": from_id,
+        "peer_b": server.peer_id,
+        "started_at": utils.now(),
+    }
+    await ws_manager.broadcast(
+        "call_offer",
+        {"call_id": call_id, "from_peer_id": from_id},
+    )
+    logger.info(f"[CALL] Incoming call offer {call_id} from {from_id}")
+
+
+async def _handle_call_answer(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+        return
+
+    call_id = message["call_id"]
+    accepted = message.get("accepted", False)
+    if not accepted:
+        server.active_calls.pop(call_id, None)
+    await ws_manager.broadcast(
+        "call_answer",
+        {
+            "call_id": call_id,
+            "from_peer_id": message["from"],
+            "accepted": accepted,
+        },
+    )
+    logger.info(
+        f"[CALL] Call {call_id} {'accepted' if accepted else 'rejected'} "
+        f"by {message['from']}",
+    )
+
+
+async def _handle_call_end(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+        return
+
+    call_id = message["call_id"]
+    server.active_calls.pop(call_id, None)
+    await ws_manager.broadcast(
+        "call_ended",
+        {"call_id": call_id, "from_peer_id": message["from"]},
+    )
+    logger.info(f"[CALL] Call {call_id} ended by {message['from']}")
+
+
+async def _handle_call_audio(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            data = json.dumps(message).encode()
+            if routing.get_next_hop_addr(to_id) is not None:
+                await server.send_to_peer(to_id, data)
+        return
+
+    call_id = message.get("call_id", "")
+    if call_id not in server.active_calls:
+        return
+
+    if not message.get("encrypted"):
+        return
+
+    try:
+        decrypted = await crypto.decrypt_message_from(
+            base64.b64decode(message["payload"].encode()),
+            message["from"],
+        )
+        audio_b64 = base64.b64encode(decrypted).decode()
+    except Exception:  # noqa: BLE001
+        return
+
+    await ws_manager.broadcast(
+        "call_audio",
+        {
+            "call_id": call_id,
+            "seq": message.get("seq", 0),
+            "audio": audio_b64,
+        },
+    )
+
+
 async def _handle_message(
     server: "Server",
     message: dict[str, Any],
@@ -486,6 +603,14 @@ async def _handle_message(
         await _handle_ping(server, message)
     elif msg_type == Type.PONG.value:
         await _handle_pong(server, message)
+    elif msg_type == Type.CALL_OFFER.value:
+        await _handle_call_offer(server, message)
+    elif msg_type == Type.CALL_ANSWER.value:
+        await _handle_call_answer(server, message)
+    elif msg_type == Type.CALL_END.value:
+        await _handle_call_end(server, message)
+    elif msg_type == Type.CALL_AUDIO.value:
+        await _handle_call_audio(server, message)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -605,6 +730,7 @@ class Server:
         self._last_active: dict[tuple, float] = {}
         self._tasks: list[asyncio.Task] = []
         self.pending_pings: dict[str, asyncio.Future] = {}
+        self.active_calls: dict[str, dict] = {}
 
     async def start_server(self) -> None:
         logger.debug(
