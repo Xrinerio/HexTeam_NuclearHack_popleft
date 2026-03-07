@@ -8,7 +8,8 @@ from app.network import routing
 from app.protocol import Type
 
 
-async def _handle_message(server: "Server", message: dict[str, Any], ip: str) -> None:
+def _handle_message(server: "Server", message: dict[str, Any], ip: str) -> None:
+    logger.info("_handling...")
     if message.get("type") == Type.PEER_INFO.value:
         peer_id = message.get("peer_id")
         name = message.get("name")
@@ -17,12 +18,14 @@ async def _handle_message(server: "Server", message: dict[str, Any], ip: str) ->
             f"Received peer_info: peer_id={peer_id}, name={name}, port={port}",
         )
         routing.add_neighbor(destination=peer_id, name=name, ip=ip)
-        routing.update_from_advertisement(
-            gateway=peer_id,
-            gateway_ip=ip,
-            routes=message.get("routes"),
-        )
-        print(routing)
+        routes = message.get("routes")
+        if routes is not None:
+            routing.update_from_advertisement(
+                gateway=peer_id,
+                gateway_ip=ip,
+                routes=routes,
+            )
+        logger.info(routing)
     # Сервер передается если нужно будет отправить что то в ответ методом Server.send
     # Здесь логика обработки входящих сообщений от других нод (tcp)
 
@@ -68,7 +71,9 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return
 
         name = pkt.get("name", "?")
-        logger.info(f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}")
+        logger.info(
+            f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}"
+        )
 
         # Тут начинается логика сохранения информации о близжайших пирах  # noqa: RUF003
         # Cтруктура pkt:  # noqa: RUF003
@@ -85,9 +90,10 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             data=json.dumps(
                 {
                     "type": Type.PEER_INFO.value,
-                    "from": self.peer_id,
-                    "tcp_port": self.server.port,
-                    "routes": routing.get_advertisement(sender_id),
+                    "peer_id": self.peer_id,
+                    "name": self.name,
+                    "port": self.server.port,
+                    "routes": routing.get_advertisement(to_node_id=sender_id),
                 },
             ),
         )
@@ -316,13 +322,18 @@ class Server:
 
     async def send(self, addr: tuple, data: str | bytes) -> None:
         """Отправить данные ноде. Соединение создаётся по требованию."""
+        logger.info("0")
         writer = self._clients.get(addr)
+        logger.info("1")
         if writer is None or writer.is_closing():
             writer = await self._connect(addr)
+        logger.info("2")
         if writer is None:
             return
+        logger.info("3")
         if isinstance(data, str):
             data = data.encode()
+        logger.info("4")
         writer.write(data)
         await writer.drain()
         self._last_active[addr] = asyncio.get_event_loop().time()
@@ -352,7 +363,7 @@ class Server:
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
-                await _handle_message(self, message, ip=addr[0])
+                _handle_message(self, message, ip=addr[0])
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")
