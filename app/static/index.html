@@ -292,6 +292,27 @@
             color: #6e7681;
             margin-top: 4px;
             padding: 0 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .message-id {
+            font-size: 0.6rem;
+            color: #484f58;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .delivery-status {
+            font-size: 0.7rem;
+        }
+
+        .delivery-status.pending {
+            color: #8b949e;
+        }
+
+        .delivery-status.delivered {
+            color: #3fb950;
         }
 
         .chat-input-area {
@@ -535,6 +556,59 @@
         let peers = [];
         let selectedPeer = null;
         let messages = {};
+        let ws = null;
+
+        // WebSocket connection
+        function connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${location.host}/api/ws`);
+
+            ws.onopen = () => {
+                console.log('[WS] Connected');
+                updateStatus('connected');
+            };
+
+            ws.onclose = () => {
+                console.log('[WS] Disconnected, reconnecting...');
+                updateStatus('disconnected');
+                setTimeout(connectWebSocket, 2000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
+
+            ws.onmessage = (event) => {
+                const packet = JSON.parse(event.data);
+                handleWsEvent(packet.event, packet.data);
+            };
+        }
+
+        function handleWsEvent(event, data) {
+            if (event === 'new_message') {
+                const peerId = data.is_outgoing ? data.to_peer_id : data.from_peer_id;
+                if (!messages[peerId]) messages[peerId] = [];
+                // Avoid duplicates
+                if (!messages[peerId].some(m => m.message_id === data.message_id)) {
+                    messages[peerId].push(data);
+                }
+                if (selectedPeer && selectedPeer.node_id === peerId) {
+                    renderMessages();
+                }
+            } else if (event === 'message_delivered') {
+                // Update delivery status in all chats
+                for (const peerId in messages) {
+                    const msg = messages[peerId].find(m => m.message_id === data.message_id);
+                    if (msg) {
+                        msg.delivered = true;
+                        if (selectedPeer && selectedPeer.node_id === peerId) {
+                            renderMessages();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
 
         // Функция для показа модального окна регистрации
         function showNameModal() {
@@ -615,7 +689,8 @@
             document.getElementById("me-id").textContent = userData.peer_id;
             document.getElementById("me-name").textContent = userData.username;
 
-            // Запускаем polling для обновления списка пиров
+            // Запускаем WebSocket и polling для обновления списка пиров
+            connectWebSocket();
             updateStatus('connected');
             startPeersPolling();
         }
@@ -762,11 +837,21 @@
             for (const msg of peerMessages) {
                 const isSent = msg.is_outgoing;
                 const type = isSent ? "sent" : "received";
+                const deliveryIcon = isSent
+                    ? (msg.delivered
+                        ? '<span class="delivery-status delivered" title="Доставлено">✓✓</span>'
+                        : '<span class="delivery-status pending" title="Отправлено">✓</span>')
+                    : '';
+                const shortId = msg.message_id ? msg.message_id.slice(0, 8) : '';
                 html += `
-                    <div class="message ${type}">
+                    <div class="message ${type}" data-msg-id="${escapeHtml(msg.message_id || '')}">
                         <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
                         <div class="message-content">${escapeHtml(msg.content)}</div>
-                        <div class="message-time">${formatTime(msg.timestamp)}</div>
+                        <div class="message-time">
+                            ${formatTime(msg.timestamp)}
+                            ${deliveryIcon}
+                            <span class="message-id" title="${escapeHtml(msg.message_id || '')}">#${escapeHtml(shortId)}</span>
+                        </div>
                     </div>
                 `;
             }
@@ -782,8 +867,11 @@
             const content = input.value.trim();
             if (!content) return;
 
+            input.value = "";
+            input.style.height = "auto";
+
             try {
-                await fetch("/api/messages", {
+                const res = await fetch("/api/messages", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -792,9 +880,11 @@
                     })
                 });
 
-                input.value = "";
-                input.style.height = "auto";
-                loadMessages(selectedPeer.node_id);
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert(err.detail || "Ошибка отправки");
+                }
+                // Message will appear via WebSocket broadcast
             } catch (err) {
                 console.error("Ошибка отправки сообщения:", err);
                 alert("Не удалось отправить сообщение");
