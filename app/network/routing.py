@@ -71,6 +71,7 @@ class Routing:
         for dest in [
             d for d, route in self._table.items() if route.gateway == gateway
         ]:
+            logger.info(f"Удалён маршрут через {gateway} до {dest}")
             del self._table[dest]
 
     def get_advertisement(
