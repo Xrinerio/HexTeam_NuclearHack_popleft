@@ -1,8 +1,12 @@
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    peer_id TEXT NOT NULL,
+    message_id TEXT NOT NULL UNIQUE,
+    from_peer_id TEXT NOT NULL,
+    to_peer_id TEXT NOT NULL,
     content TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    is_outgoing BOOLEAN NOT NULL DEFAULT 0,
+    delivered BOOLEAN NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
 );
 
 
