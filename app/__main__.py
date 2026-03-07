@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import api
 from app.core import Settings
+from app.crypto.crypto import crypto
 from app.database import database
 from app.server import Server
 
@@ -23,10 +24,12 @@ server: Server = Server(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    await crypto.initialize()
     database.initialize_tables()
     await server.start_server()
     yield
     await server.stop_server()
+    await crypto.write_peers()
 
 
 app: FastAPI = FastAPI(title="P2P Chat", lifespan=lifespan)
