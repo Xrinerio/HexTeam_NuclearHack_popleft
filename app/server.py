@@ -218,7 +218,7 @@ class Server:
         """Периодически рассылает UDP hello через каждый сетевой интерфейс."""
         pkt = json.dumps(
             {
-                "type": "hello",
+                "type": "HELLO",
                 "peer_id": self.peer_id,
                 "name": socket.gethostname(),
                 "port": self.port,
