@@ -85,7 +85,7 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
             logger.warning(f"[MSG] TTL=0, dropping id={message.get('id')}")
         return
 
-    if not message.get("encrypted", False):
+    if not message.get("encrypted"):
         logger.warning(f"[MSG] Dropping unencrypted message from {from_id}")
         return
 
@@ -160,7 +160,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return
 
         name = pkt.get("name", "?")
-        logger.info(
+        logger.debug(
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
@@ -469,7 +469,7 @@ class Server:
                     logger.warning(f"[TCP] [{addr}] Invalid data received")
                     continue
 
-                logger.info(f"[TCP] [{addr}] >> {message}")
+                logger.debug(f"[TCP] [{addr}] >> {message}")
                 await _handle_message(self, message, addr=addr)
 
         except (ConnectionResetError, ConnectionAbortedError):
@@ -482,7 +482,7 @@ class Server:
             peer_id = self._peer_ids.get(addr)
             if peer_id is not None:
                 routing.remove_routes_via(peer_id)
-                logger.info(f"[TCP] Routes via {peer_id} removed\n{routing}")
+                logger.info(routing)
             self._clients.pop(addr, None)
             self._peer_ids.pop(addr, None)
             self._last_active.pop(addr, None)
