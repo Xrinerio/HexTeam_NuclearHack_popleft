@@ -86,6 +86,7 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
     to_id = message.get("to")
     public_key_b64 = message.get("public_key", "")
     ttl = message.get("ttl", 0)
+    is_reply = message.get("is_reply", False)
 
     if to_id != server.peer_id:
         if ttl > 0:
@@ -100,18 +101,30 @@ async def _handle_key_exchange(server: "Server", message: dict) -> None:
                 )
         return
 
-    first_contact = from_id not in crypto.peers
-    await crypto.add_peer(from_id, public_key_b64)
-    logger.info(f"[Crypto] Stored public key of {from_id}")
+    # Detect if the key is new or changed
+    existing = crypto.peers.get(from_id)
+    new_key_bytes = base64.b64decode(public_key_b64)
+    key_changed = existing is None or bytes(existing) != new_key_bytes
 
-    if first_contact and crypto.public_key is not None:
+    await crypto.add_peer(from_id, public_key_b64)
+    if key_changed:
+        logger.info(
+            f"[Crypto] Stored {'new' if existing is None else 'updated'} public key of {from_id}"
+        )
+    else:
+        logger.debug(f"[Crypto] Received unchanged public key of {from_id}")
+
+    # Always respond to non-reply KEY_EXCHANGEs so both sides stay in sync.
+    # is_reply=True prevents an infinite ping-pong loop.
+    if not is_reply and crypto.public_key is not None:
         kex = KeyExchange(
             from_=server.peer_id,
             to=from_id,
             public_key=_our_public_key_b64(),
+            is_reply=True,
         )
         await server.send_to_peer(from_id, kex.to_bytes())
-        logger.info(f"[Crypto] KEY_EXCHANGE response sent to {from_id}")
+        logger.info(f"[Crypto] KEY_EXCHANGE reply sent to {from_id}")
 
 
 async def _handle_message_packet(server: "Server", message: dict) -> None:
@@ -150,6 +163,21 @@ async def _handle_message_packet(server: "Server", message: dict) -> None:
         logger.warning(
             f"[Crypto] Decrypt failed from {from_id}, dropping message",
         )
+        # Stale key — ask the remote peer to re-exchange keys
+        if (
+            routing.get_next_hop_addr(from_id) is not None
+            and server.peer_id
+            and crypto.public_key is not None
+        ):
+            kex = KeyExchange(
+                from_=server.peer_id,
+                to=from_id,
+                public_key=_our_public_key_b64(),
+            )
+            await server.send_to_peer(from_id, kex.to_bytes())
+            logger.info(
+                f"[Crypto] Sent KEY_EXCHANGE to {from_id} after decrypt failure"
+            )
         return
 
     # send ACK back to sender
@@ -318,6 +346,23 @@ async def _handle_file_chunk(server: "Server", message: dict) -> None:
             f"[FILE] Decrypt failed for chunk "
             f"{message.get('chunk_index')} of {message.get('file_id')}",
         )
+        # Stale key — ask the remote peer to re-exchange keys
+        chunk_from = message.get("from")
+        if (
+            chunk_from
+            and routing.get_next_hop_addr(chunk_from) is not None
+            and server.peer_id
+            and crypto.public_key is not None
+        ):
+            kex = KeyExchange(
+                from_=server.peer_id,
+                to=chunk_from,
+                public_key=_our_public_key_b64(),
+            )
+            await server.send_to_peer(chunk_from, kex.to_bytes())
+            logger.info(
+                f"[Crypto] Sent KEY_EXCHANGE to {chunk_from} after file decrypt failure"
+            )
         return
 
     await _save_and_finalize_chunk(server, message, decrypted)
@@ -544,6 +589,7 @@ class Server:
             asyncio.create_task(self._idle_cleanup_loop()),
             asyncio.create_task(self._resend_undelivered_loop()),
             asyncio.create_task(self._resend_file_chunks_loop()),
+            asyncio.create_task(self._keepalive_loop()),
         ]
         logger.info("[Server] Background tasks started")
 
@@ -704,6 +750,41 @@ class Server:
                             writer.close()
         except asyncio.CancelledError:
             logger.debug("[TCP] _idle_cleanup_loop cancelled")
+
+    async def _keepalive_loop(self) -> None:
+        """Периодически отправляет PEER_INFO прямым соседям по TCP, чтобы
+        соединения не закрывались из-за idle-timeout.
+        """
+        interval = max(5.0, self.idle_timeout / 4)
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                if not self.peer_id:
+                    continue
+                for route in routing.all_routes():
+                    if route.hops != 1 or not route.ip or not route.port:
+                        continue
+                    peer_info = json.dumps(
+                        {
+                            "type": Type.PEER_INFO.value,
+                            "peer_id": self.peer_id,
+                            "name": Settings.USERNAME,
+                            "port": self.port,
+                            "routes": routing.get_advertisement(
+                                to_node_id=route.destination,
+                            ),
+                        },
+                    ).encode()
+                    try:
+                        await self.send(
+                            addr=(route.ip, route.port),
+                            data=peer_info,
+                            peer_id=route.destination,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+        except asyncio.CancelledError:
+            logger.debug("[Keepalive] _keepalive_loop cancelled")
 
     async def _resend_undelivered_loop(self) -> None:
         """Периодически переотправляет недоставленные исходящие сообщения."""
