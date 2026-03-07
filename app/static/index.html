@@ -390,8 +390,92 @@
             cursor: pointer;
             font-size: 0.9rem;
             transition: all 0.15s;
-            opacity: 0.5;
-            cursor: not-allowed;
+        }
+
+        .file-btn:hover {
+            background: #3d4149;
+            border-color: #58a6ff;
+        }
+
+        .file-btn:active {
+            background: #2d3139;
+        }
+
+        /* File messages */
+        .file-message {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .message.sent .file-message {
+            background: #2d4a6e;
+            color: #e6edf3;
+        }
+
+        .message.received .file-message {
+            background: #2a2e35;
+            color: #c9d1d9;
+        }
+
+        .file-icon {
+            font-size: 1.6rem;
+            flex-shrink: 0;
+        }
+
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name {
+            font-weight: 600;
+            word-break: break-all;
+            line-height: 1.3;
+        }
+
+        .file-size {
+            font-size: 0.75rem;
+            color: #8b949e;
+            margin-top: 2px;
+        }
+
+        .file-status {
+            font-size: 0.7rem;
+            margin-top: 3px;
+        }
+
+        .file-status.sending {
+            color: #d29922;
+        }
+
+        .file-status.completed {
+            color: #3fb950;
+        }
+
+        .file-status.failed {
+            color: #f85149;
+        }
+
+        .file-download-btn {
+            padding: 6px 12px;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            transition: background 0.15s;
+            flex-shrink: 0;
+        }
+
+        .file-download-btn:hover {
+            background: #2ea043;
         }
 
         /* Модальное окно для ввода имени */
@@ -557,6 +641,7 @@
         let contactNames = {}; // peer_id -> name (persisted from DB)
         let selectedPeer = null;
         let messages = {};
+        let fileTransfers = {}; // peer_id -> [{file_id, filename, file_size, ...}]
         let ws = null;
 
         // WebSocket connection
@@ -611,6 +696,21 @@
                         break;
                     }
                 }
+            } else if (event === 'file_transfer_started') {
+                addFileTransfer(data);
+            } else if (event === 'file_received') {
+                // Incoming file fully received
+                const peerId = data.from_peer_id;
+                if (!fileTransfers[peerId] || !fileTransfers[peerId].some(f => f.file_id === data.file_id)) {
+                    // Fetch the transfer from API since we may not have it yet
+                    fetchAndAddTransfer(data.file_id, peerId);
+                } else {
+                    updateFileTransferStatus(peerId, data.file_id, 'completed');
+                }
+            } else if (event === 'file_transfer_completed') {
+                // Outgoing file fully delivered
+                const peerId = data.to_peer_id;
+                updateFileTransferStatus(peerId, data.file_id, 'completed');
             }
         }
 
@@ -713,6 +813,8 @@
                     const r = await fetch(`/api/messages/${chat.peer_id}`);
                     if (r.ok) messages[chat.peer_id] = await r.json();
                 }));
+                // Load file transfers
+                await loadFileTransfers();
                 rebuildChatPeers();
                 renderPeersList(document.getElementById("search-input").value);
             } catch (err) {
@@ -748,6 +850,19 @@
             // Добавляем пиров из истории сообщений, если их нет в live
             for (const peerId in messages) {
                 if (!map[peerId] && messages[peerId].length > 0) {
+                    map[peerId] = {
+                        node_id: peerId,
+                        name: contactNames[peerId] || peerId.slice(0, 8),
+                        ip: '—',
+                        port: 0,
+                        hops: 0,
+                        online: false,
+                    };
+                }
+            }
+            // Добавляем пиров из файловых трансферов
+            for (const peerId in fileTransfers) {
+                if (!map[peerId] && fileTransfers[peerId].length > 0) {
                     map[peerId] = {
                         node_id: peerId,
                         name: contactNames[peerId] || peerId.slice(0, 8),
@@ -836,7 +951,8 @@
                 </div>
                 <div class="chat-input-area">
                     <div class="chat-input-wrapper">
-                        <button class="file-btn" title="File sharing (coming soon)" disabled>📎</button>
+                        <input type="file" id="file-input" style="display:none">
+                        <button class="file-btn" id="file-btn" title="Отправить файл">📎</button>
                         <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение..." rows="1"></textarea>
                         <button class="send-btn" id="send-btn">Отправить</button>
                     </div>
@@ -860,6 +976,17 @@
             });
 
             sendBtn.addEventListener("click", sendMessage);
+
+            // File upload handlers
+            const fileBtn = document.getElementById("file-btn");
+            const fileInput = document.getElementById("file-input");
+            fileBtn.addEventListener("click", () => fileInput.click());
+            fileInput.addEventListener("change", () => {
+                if (fileInput.files.length > 0) {
+                    sendFile(fileInput.files[0]);
+                    fileInput.value = "";
+                }
+            });
         }
 
         // Загрузка сообщений
@@ -880,33 +1007,58 @@
 
             const container = document.getElementById("chat-messages");
             const peerMessages = messages[selectedPeer.node_id] || [];
+            const peerFiles = fileTransfers[selectedPeer.node_id] || [];
 
-            if (!peerMessages.length) {
+            if (!peerMessages.length && !peerFiles.length) {
                 container.innerHTML = '<div class="empty-msg">Пока нет сообщений. Начните беседу!</div>';
                 return;
             }
 
-            let html = "";
+            // Build unified timeline: messages + files sorted by timestamp
+            const items = [];
             for (const msg of peerMessages) {
-                const isSent = msg.is_outgoing;
-                const type = isSent ? "sent" : "received";
-                const deliveryIcon = isSent
-                    ? (msg.delivered
-                        ? '<span class="delivery-status delivered" title="Доставлено">✓✓</span>'
-                        : '<span class="delivery-status pending" title="Отправлено">✓</span>')
-                    : '';
-                html += `
-                    <div class="message ${type}" data-msg-id="${escapeHtml(msg.message_id || '')}">
-                        <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
-                        <div class="message-content">${escapeHtml(msg.content)}</div>
-                        <div class="message-time">
-                            ${formatTime(msg.timestamp)}
-                            ${deliveryIcon}
+                items.push({ type: 'message', ts: msg.timestamp, data: msg });
+            }
+            for (const ft of peerFiles) {
+                items.push({ type: 'file', ts: ft.created_at, data: ft });
+            }
+            items.sort((a, b) => a.ts - b.ts);
+
+            let html = "";
+            for (const item of items) {
+                if (item.type === 'message') {
+                    const msg = item.data;
+                    const isSent = msg.is_outgoing;
+                    const type = isSent ? "sent" : "received";
+                    const deliveryIcon = isSent
+                        ? (msg.delivered
+                            ? '<span class="delivery-status delivered" title="Доставлено">✓✓</span>'
+                            : '<span class="delivery-status pending" title="Отправлено">✓</span>')
+                        : '';
+                    html += `
+                        <div class="message ${type}" data-msg-id="${escapeHtml(msg.message_id || '')}">
+                            <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
+                            <div class="message-content">${escapeHtml(msg.content)}</div>
+                            <div class="message-time">
+                                ${formatTime(msg.timestamp)}
+                                ${deliveryIcon}
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                } else {
+                    html += renderFileMessage(item.data);
+                }
             }
             container.innerHTML = html;
+
+            // Bind download buttons
+            container.querySelectorAll('.file-download-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const fileId = btn.getAttribute('data-file-id');
+                    window.open(`/api/files/${encodeURIComponent(fileId)}/download`, '_blank');
+                });
+            });
+
             container.scrollTop = container.scrollHeight;
         }
 
@@ -997,6 +1149,144 @@
             } catch (err) {
                 console.error("Failed to fetch peers:", err);
                 updateStatus('disconnected');
+            }
+        }
+
+        // ─── File Transfer Functions ────────────────────────────────
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+
+        function fileIcon(filename) {
+            const ext = (filename || '').split('.').pop().toLowerCase();
+            const icons = {
+                pdf: '📄', doc: '📝', docx: '📝', txt: '📝',
+                png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️',
+                mp3: '🎵', wav: '🎵', ogg: '🎵', flac: '🎵',
+                mp4: '🎬', avi: '🎬', mkv: '🎬', mov: '🎬',
+                zip: '📦', rar: '📦', '7z': '📦', tar: '📦', gz: '📦',
+                exe: '⚙️', msi: '⚙️',
+                py: '🐍', js: '📜', ts: '📜', html: '🌐', css: '🎨',
+            };
+            return icons[ext] || '📁';
+        }
+
+        async function loadFileTransfers() {
+            try {
+                const res = await fetch("/api/files");
+                if (!res.ok) return;
+                const transfers = await res.json();
+                fileTransfers = {};
+                for (const ft of transfers) {
+                    const peerId = ft.is_outgoing ? ft.to_peer_id : ft.from_peer_id;
+                    if (!fileTransfers[peerId]) fileTransfers[peerId] = [];
+                    fileTransfers[peerId].push(ft);
+                }
+            } catch (err) {
+                console.error("Failed to load file transfers:", err);
+            }
+        }
+
+        function addFileTransfer(transfer) {
+            const peerId = transfer.is_outgoing ? transfer.to_peer_id : transfer.from_peer_id;
+            if (!fileTransfers[peerId]) fileTransfers[peerId] = [];
+            // Avoid duplicates
+            if (!fileTransfers[peerId].some(f => f.file_id === transfer.file_id)) {
+                fileTransfers[peerId].push(transfer);
+            }
+            rebuildChatPeers();
+            renderPeersList(document.getElementById("search-input").value);
+            if (selectedPeer && selectedPeer.node_id === peerId) {
+                renderMessages();
+            }
+        }
+
+        function updateFileTransferStatus(peerId, fileId, status) {
+            if (!fileTransfers[peerId]) return;
+            const ft = fileTransfers[peerId].find(f => f.file_id === fileId);
+            if (ft) {
+                ft.status = status;
+                if (selectedPeer && selectedPeer.node_id === peerId) {
+                    renderMessages();
+                }
+            }
+        }
+
+        async function fetchAndAddTransfer(fileId, peerId) {
+            try {
+                const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`);
+                if (!res.ok) return;
+                const transfer = await res.json();
+                addFileTransfer(transfer);
+            } catch (err) {
+                console.error("Failed to fetch file transfer:", err);
+            }
+        }
+
+        function renderFileMessage(ft) {
+            const isSent = ft.is_outgoing;
+            const type = isSent ? "sent" : "received";
+            const icon = fileIcon(ft.filename);
+
+            let statusHtml = '';
+            let downloadBtn = '';
+            if (ft.status === 'completed') {
+                statusHtml = '<span class="file-status completed">✓ Завершено</span>';
+                downloadBtn = `<button class="file-download-btn" data-file-id="${escapeHtml(ft.file_id)}">Скачать</button>`;
+            } else if (ft.status === 'failed') {
+                statusHtml = '<span class="file-status failed">✗ Ошибка</span>';
+            } else {
+                // in_progress or pending
+                const pct = ft.total_chunks > 0
+                    ? Math.round((ft.received_chunks / ft.total_chunks) * 100)
+                    : 0;
+                statusHtml = `<span class="file-status sending">${isSent ? 'Отправка' : 'Получение'}... ${pct}%</span>`;
+            }
+
+            const ts = ft.created_at ? formatTime(ft.created_at) : '';
+
+            return `
+                <div class="message ${type}" data-file-id="${escapeHtml(ft.file_id)}">
+                    <div class="message-header">${isSent ? "Вы" : escapeHtml(selectedPeer.name)}</div>
+                    <div class="file-message">
+                        <span class="file-icon">${icon}</span>
+                        <div class="file-info">
+                            <div class="file-name">${escapeHtml(ft.filename)}</div>
+                            <div class="file-size">${formatFileSize(ft.file_size)}</div>
+                            ${statusHtml}
+                        </div>
+                        ${downloadBtn}
+                    </div>
+                    <div class="message-time">${ts}</div>
+                </div>
+            `;
+        }
+
+        async function sendFile(file) {
+            if (!selectedPeer) return;
+
+            const formData = new FormData();
+            formData.append('peer_id', selectedPeer.node_id);
+            formData.append('file', file);
+
+            try {
+                const res = await fetch("/api/files/send", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert(err.detail || "Ошибка отправки файла");
+                }
+                // Transfer will appear via WebSocket broadcast (file_transfer_started)
+            } catch (err) {
+                console.error("Ошибка отправки файла:", err);
+                alert("Не удалось отправить файл");
             }
         }
     </script>

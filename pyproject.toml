@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "pynacl>=1.6.2",
+    "python-multipart>=0.0.22",
     "uvicorn>=0.30.0",
     "websockets>=12.0",
 ]

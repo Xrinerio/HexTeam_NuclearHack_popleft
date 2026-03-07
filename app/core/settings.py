@@ -26,6 +26,10 @@ class _Settings:
     MESSAGE_TTL: int = 3600
     # Максимальное количество попыток переотправки сообщения.
     MESSAGE_MAX_RETRIES: int = 3
+    # Размер одного чанка при передаче файлов (по умолчанию 32 КБ).
+    FILE_CHUNK_SIZE: int = 32768
+    # Директория для хранения данных файловых передач.
+    FILES_DIR: str = "files/transfers"
 
 
 Settings = _Settings()

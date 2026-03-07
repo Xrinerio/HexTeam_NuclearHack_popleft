@@ -1,10 +1,23 @@
 import asyncio
 import base64
+import hashlib
 import json
 import socket
+from pathlib import Path
 from typing import Any
 
 from app.core import Settings, logger, utils
+from app.crud.file_transfers import (
+    cleanup_expired_transfers,
+    complete_file_transfer,
+    create_file_transfer,
+    fail_file_transfer,
+    get_file_transfer,
+    get_undelivered_chunks,
+    increment_chunk_retry,
+    increment_received_chunks,
+    mark_chunk_delivered,
+)
 from app.crud.messages import (
     delete_expired_undelivered,
     get_undelivered_outgoing,
@@ -16,7 +29,7 @@ from app.crud.users import save_peer_name
 from app.crypto.crypto import crypto
 from app.network import buffer, routing
 from app.network.ws_manager import ws_manager
-from app.protocol import Ack, KeyExchange, Message, Type
+from app.protocol import Ack, FileAck, FileChunk, KeyExchange, Message, Type
 
 
 def _our_public_key_b64() -> str:
@@ -191,6 +204,147 @@ async def _handle_ack(server: "Server", message: dict) -> None:
         )
 
 
+def _reassemble_file(
+    transfer_dir: Path,
+    total_chunks: int,
+) -> bytes | None:
+    """Reassemble file chunks into the complete file."""
+    parts = []
+    for i in range(total_chunks):
+        chunk_path = transfer_dir / f"chunk_{i}"
+        if not chunk_path.exists():
+            return None
+        parts.append(chunk_path.read_bytes())
+    return b"".join(parts)
+
+
+async def _handle_file_chunk(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(
+                to_id,
+                json.dumps(message).encode(),
+            )
+        return
+
+    if not message.get("encrypted"):
+        logger.warning(
+            f"[FILE] Dropping unencrypted chunk from {message.get('from')}",
+        )
+        return
+
+    try:
+        decrypted = await crypto.decrypt_message_from(
+            base64.b64decode(message["payload"].encode()),
+            message["from"],
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            f"[FILE] Decrypt failed for chunk "
+            f"{message.get('chunk_index')} of {message.get('file_id')}",
+        )
+        return
+
+    file_id = message["file_id"]
+    transfer_dir = Path(Settings.FILES_DIR) / file_id
+    transfer_dir.mkdir(parents=True, exist_ok=True)
+    chunk_path = transfer_dir / f"chunk_{message['chunk_index']}"
+
+    if not chunk_path.exists():
+        chunk_path.write_bytes(decrypted)
+
+        if get_file_transfer(file_id) is None:
+            create_file_transfer(
+                file_id=file_id,
+                from_peer_id=message["from"],
+                to_peer_id=server.peer_id,
+                filename=message.get("filename", ""),
+                file_size=message.get("file_size", 0),
+                sha256=message.get("sha256", ""),
+                total_chunks=message.get("total_chunks", 0),
+                is_outgoing=False,
+            )
+
+        total = message.get("total_chunks", 0)
+        received = increment_received_chunks(file_id)
+        logger.info(
+            f"[FILE] Chunk {message['chunk_index']}/{total - 1} "
+            f"of {file_id} ({received}/{total})",
+        )
+
+        if received >= total:
+            assembled = _reassemble_file(transfer_dir, total)
+            if assembled is not None:
+                actual = hashlib.sha256(assembled).hexdigest()
+                expected = message.get("sha256", "")
+                if actual == expected:
+                    (transfer_dir / "complete").write_bytes(assembled)
+                    complete_file_transfer(file_id)
+                    logger.info(
+                        f"[FILE] {file_id} received and verified",
+                    )
+                    await ws_manager.broadcast(
+                        "file_received",
+                        {
+                            "file_id": file_id,
+                            "filename": message.get("filename", ""),
+                            "file_size": message.get("file_size", 0),
+                            "from_peer_id": message["from"],
+                        },
+                    )
+                else:
+                    logger.error(
+                        f"[FILE] Hash mismatch for {file_id}",
+                    )
+                    fail_file_transfer(file_id)
+
+    # ACK this chunk regardless (idempotent)
+    ack = FileAck(
+        from_=server.peer_id,
+        to=message["from"],
+        file_id=file_id,
+        chunk_index=message.get("chunk_index", 0),
+    )
+    await server.send_to_peer(message["from"], ack.to_bytes())
+
+
+async def _handle_file_ack(server: "Server", message: dict) -> None:
+    to_id = message.get("to")
+    file_id = message.get("file_id", "")
+    chunk_index = message.get("chunk_index", 0)
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(
+                to_id,
+                json.dumps(message).encode(),
+            )
+        return
+
+    logger.info(
+        f"[FILE_ACK] Chunk {chunk_index} of {file_id} acknowledged",
+    )
+
+    mark_chunk_delivered(file_id, chunk_index)
+    transfer = get_file_transfer(file_id)
+    if transfer and transfer["status"] == "completed":
+        logger.info(f"[FILE] Transfer {file_id} fully delivered")
+        await ws_manager.broadcast(
+            "file_transfer_completed",
+            {
+                "file_id": file_id,
+                "filename": transfer["filename"],
+                "to_peer_id": transfer["to_peer_id"],
+            },
+        )
+
+
 async def _handle_message(
     server: "Server",
     message: dict[str, Any],
@@ -206,6 +360,10 @@ async def _handle_message(
         await _handle_message_packet(server, message)
     elif msg_type == Type.ACK.value:
         await _handle_ack(server, message)
+    elif msg_type == Type.FILE_CHUNK.value:
+        await _handle_file_chunk(server, message)
+    elif msg_type == Type.FILE_ACK.value:
+        await _handle_file_ack(server, message)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -249,15 +407,6 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        # Тут начинается логика сохранения информации о близжайших пирах  # noqa: RUF003
-        # Cтруктура pkt:  # noqa: RUF003
-        #
-        #     "type": "hello",        тип сообщения
-        #     "peer_id": sender_id,   uuid пира
-        #     "name": name,           hostname пира
-        #     "port": tcp_port,       tcp порт пира
-        #
-
         routing.add_neighbor(
             destination=sender_id,
             name=name,
@@ -266,7 +415,6 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         )
         await _flush_buffer(self.server)
 
-        # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast. # noqa: RUF003
         await self.server.send(
             addr=(addr[0], pkt.get("port")),
             data=json.dumps(
@@ -354,11 +502,9 @@ class Server:
             asyncio.create_task(self._broadcast_loop()),
             asyncio.create_task(self._idle_cleanup_loop()),
             asyncio.create_task(self._resend_undelivered_loop()),
+            asyncio.create_task(self._resend_file_chunks_loop()),
         ]
-        logger.info(
-            "[Server] Background tasks started "
-            "(_broadcast_loop, _idle_cleanup_loop, _resend_undelivered_loop)",
-        )
+        logger.info("[Server] Background tasks started")
 
     async def stop_server(self) -> None:
         logger.info("[Server] Stopping...")
@@ -591,10 +737,90 @@ class Server:
         except asyncio.CancelledError:
             logger.debug("[Resend] _resend_undelivered_loop cancelled")
 
+    async def _resend_file_chunks_loop(self) -> None:
+        """Periodically resend undelivered file chunks."""
+        try:
+            while True:
+                await asyncio.sleep(self.resend_interval)
+                if not self.peer_id:
+                    continue
+
+                cleanup_expired_transfers(
+                    ttl=Settings.MESSAGE_TTL,
+                    max_retries=Settings.MESSAGE_MAX_RETRIES,
+                )
+
+                chunks = get_undelivered_chunks()
+                if not chunks:
+                    continue
+
+                logger.info(
+                    f"[Resend] {len(chunks)} undelivered file chunk(s) found",
+                )
+
+                file_cache: dict[str, bytes] = {}
+                for ch in chunks:
+                    to_id = ch["to_peer_id"]
+                    fid = ch["file_id"]
+                    increment_chunk_retry(fid, ch["chunk_index"])
+
+                    if routing.get_route(to_id) is None:
+                        continue
+                    if to_id not in crypto.peers:
+                        continue
+
+                    if fid not in file_cache:
+                        original = Path(Settings.FILES_DIR) / fid / "original"
+                        if not original.exists():
+                            continue
+                        file_cache[fid] = original.read_bytes()
+
+                    chunk_size = Settings.FILE_CHUNK_SIZE
+                    offset = ch["chunk_index"] * chunk_size
+                    chunk_data = file_cache[fid][offset : offset + chunk_size]
+
+                    try:
+                        raw = await crypto.encrypt_message_to(
+                            chunk_data,
+                            to_id,
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            f"[Resend] Encrypt failed for chunk "
+                            f"{ch['chunk_index']} of {fid}",
+                        )
+                        continue
+
+                    fc = FileChunk(
+                        from_=self.peer_id,
+                        to=to_id,
+                        file_id=fid,
+                        filename=ch["filename"],
+                        chunk_index=ch["chunk_index"],
+                        total_chunks=ch["total_chunks"],
+                        file_size=ch["file_size"],
+                        sha256=ch["sha256"],
+                        payload=base64.b64encode(raw).decode(),
+                        encrypted=True,
+                    )
+                    await self.send_to_peer(to_id, fc.to_bytes())
+                    logger.info(
+                        f"[Resend] File chunk "
+                        f"{ch['chunk_index']}/{ch['total_chunks'] - 1} "
+                        f"of {fid} re-sent "
+                        f"(attempt {ch['retry_count'] + 1})",
+                    )
+        except asyncio.CancelledError:
+            logger.debug(
+                "[Resend] _resend_file_chunks_loop cancelled",
+            )
+
     async def send(self, addr: tuple, data: str | bytes, peer_id: str) -> None:
         """Отправить данные ноде. Соединение создаётся по требованию."""
         if isinstance(data, str):
             data = data.encode()
+        if not data.endswith(b"\n"):
+            data += b"\n"
 
         last_err: OSError | None = None
         for attempt in range(1, self.send_retries + 1):
@@ -650,22 +876,37 @@ class Server:
         self._last_active[addr] = asyncio.get_event_loop().time()
         logger.info(f"[TCP] [+] Connected: {addr}")
 
+        recv_buf = b""
         try:
             while True:
-                data = await reader.read(1024)
+                data = await reader.read(65536)
                 if not data:
                     break
 
                 self._last_active[addr] = asyncio.get_event_loop().time()
+                recv_buf += data
 
-                try:
-                    message = json.loads(data.decode("utf-8").strip())
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    logger.warning(f"[TCP] [{addr}] Invalid data received")
-                    continue
+                while b"\n" in recv_buf:
+                    line, recv_buf = recv_buf.split(b"\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        message = json.loads(
+                            line.decode("utf-8"),
+                        )
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        logger.warning(
+                            f"[TCP] [{addr}] Invalid data",
+                        )
+                        continue
 
-                logger.debug(f"[TCP] [{addr}] >> {message}")
-                await _handle_message(self, message, addr=addr)
+                    logger.debug(f"[TCP] [{addr}] >> {message}")
+                    await _handle_message(
+                        self,
+                        message,
+                        addr=addr,
+                    )
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")

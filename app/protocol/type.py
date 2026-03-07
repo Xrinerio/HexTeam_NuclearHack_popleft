@@ -10,3 +10,5 @@ class Type(Enum):
     HELLO = "HELLO"
     PEER_INFO = "PEER_INFO"
     KEY_EXCHANGE = "KEY_EXCHANGE"
+    FILE_CHUNK = "FILE_CHUNK"
+    FILE_ACK = "FILE_ACK"
