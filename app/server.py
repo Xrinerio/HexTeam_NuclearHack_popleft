@@ -793,7 +793,7 @@ class Server:
                             asyncio.get_event_loop().time()
                         )
                         logger.debug(
-                            f"[Keepalive] Sent PEER_INFO to {peer_id} via {addr}"
+                            f"[Keepalive] Sent PEER_INFO to {peer_id} via {addr}",
                         )
                     except Exception:  # noqa: BLE001
                         pass
@@ -1079,4 +1079,7 @@ class Server:
             self._last_active.pop(addr, None)
             logger.info(f"[TCP] [-] Disconnected: {addr}")
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                pass
