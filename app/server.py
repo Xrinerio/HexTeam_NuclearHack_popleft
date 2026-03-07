@@ -45,7 +45,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
 
         sender_id = pkt.get("peer_id")
         if sender_id == self.peer_id:
-            return  # игнорируем свои пакеты
+            return
 
         name = pkt.get("name", "?")
         tcp_port = pkt.get("port")
@@ -53,23 +53,10 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        self.server.peers[(addr[0], tcp_port)] = {
+        self.server.peers[addr[0], tcp_port] = {
             "peer_id": sender_id,
             "name": name,
         }
-
-        # if msg_type == "hello":
-        #     response = json.dumps(
-        #         {
-        #             "type": "hello",
-        #             "peer_id": self.peer_id,
-        #             "name": self.name,
-        #             "port": self.discovery_port,
-        #         },
-        #     ).encode()
-
-        #     if self.transport:
-        #         self.transport.sendto(response, (addr[0], self.discovery_port))
 
     def error_received(self, exc: Exception) -> None:
         logger.error(f"[UDP] Error: {exc}")
@@ -98,11 +85,8 @@ class Server:
         self.broadcast_addr = broadcast_addr
         self.server: asyncio.AbstractServer | None = None
         self._udp_transport: asyncio.DatagramTransport | None = None
-        # активные TCP соединения: addr -> writer
         self._clients: dict[tuple, asyncio.StreamWriter] = {}
-        # время последней активности: addr -> timestamp
         self._last_active: dict[tuple, float] = {}
-        # известные ноды из UDP discovery: addr -> {"peer_id", "name"}
         self.peers: dict[tuple, dict] = {}
         self._tasks: list[asyncio.Task] = []
 
