@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class Settings:
+class _Settings:
     # Идентификатор и имя текущего пира — загружаются из БД после регистрации.
     PEER_ID: str | None = field(default=None)
     USERNAME: str | None = field(default=None)
@@ -26,3 +26,6 @@ class Settings:
     MESSAGE_TTL: int = 3600
     # Максимальное количество попыток переотправки сообщения.
     MESSAGE_MAX_RETRIES: int = 3
+
+
+Settings = _Settings()
