@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Chat - Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            background: #1a1d23;
+            color: #c9d1d9;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Левая панель */
+        .sidebar {
+            width: 350px;
+            background: #22252b;
+            border-right: 1px solid #2d3139;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 16px;
+            background: #1a1d23;
+            border-bottom: 1px solid #2d3139;
+        }
+
+        .header h1 {
+            font-size: 1.2rem;
+            color: #f0f6fc;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .status {
+            font-size: 0.75rem;
+            color: #8b949e;
+        }
+
+        .ws-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+
+        /* Информация о себе */
+        .self-info {
+            padding: 12px 16px;
+            background: #2a2e35;
+            border-bottom: 1px solid #2d3139;
+        }
+
+        .self-info-title {
+            font-size: 0.7rem;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .self-info-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 4px 12px;
+            font-size: 0.8rem;
+        }
+
+        .self-info-label {
+            color: #6e7681;
+        }
+
+        .self-info-value {
+            color: #c9d1d9;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Поиск */
+        .search-box {
+            padding: 12px 16px;
+            border-bottom: 1px solid #2d3139;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 8px 12px;
+            background: #1a1d23;
+            border: 1px solid #2d3139;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: #58a6ff;
+        }
+
+        .search-input::placeholder {
+            color: #6e7681;
+        }
+
+        /* Список пиров */
+        .peers-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .peers-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .peers-list::-webkit-scrollbar-track {
+            background: #22252b;
+        }
+
+        .peers-list::-webkit-scrollbar-thumb {
+            background: #2d3139;
+            border-radius: 4px;
+        }
+
+        .peers-list::-webkit-scrollbar-thumb:hover {
+            background: #3d4149;
+        }
+
+        .peer-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid #2d3139;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .peer-item:hover {
+            background: #2a2e35;
+        }
+
+        .peer-item.active {
+            background: #2d3542;
+            border-left: 3px solid #58a6ff;
+        }
+
+        .peer-name {
+            font-size: 0.9rem;
+            color: #f0f6fc;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+        }
+
+        .peer-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #3fb950;
+            margin-right: 8px;
+            box-shadow: 0 0 4px #3fb95066;
+        }
+
+        .peer-details {
+            font-size: 0.7rem;
+            color: #8b949e;
+        }
+
+        .empty-msg {
+            color: #6e7681;
+            padding: 2rem 1rem;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+
+        /* Правая панель - чат */
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1a1d23;
+        }
+
+        .chat-empty {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6e7681;
+            font-size: 1.1rem;
+        }
+
+        .chat-header {
+            padding: 16px 20px;
+            background: #22252b;
+            border-bottom: 1px solid #2d3139;
+        }
+
+        .chat-header-name {
+            font-size: 1.1rem;
+            color: #f0f6fc;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .chat-header-info {
+            font-size: 0.75rem;
+            color: #8b949e;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: #1a1d23;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #2d3139;
+            border-radius: 4px;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            max-width: 70%;
+        }
+
+        .message.sent {
+            margin-left: auto;
+        }
+
+        .message.received {
+            margin-right: auto;
+        }
+
+        .message-header {
+            font-size: 0.75rem;
+            color: #8b949e;
+            margin-bottom: 4px;
+            padding: 0 4px;
+        }
+
+        .message-content {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            word-wrap: break-word;
+        }
+
+        .message.sent .message-content {
+            background: #2d4a6e;
+            color: #e6edf3;
+        }
+
+        .message.received .message-content {
+            background: #2a2e35;
+            color: #c9d1d9;
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+            color: #6e7681;
+            margin-top: 4px;
+            padding: 0 4px;
+        }
+
+        .chat-input-area {
+            padding: 16px 20px;
+            background: #22252b;
+            border-top: 1px solid #2d3139;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 10px 14px;
+            background: #1a1d23;
+            border: 1px solid #2d3139;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', monospace;
+            resize: none;
+            max-height: 120px;
+            outline: none;
+            overflow: hidden;
+        }
+
+        .chat-input:focus {
+            border-color: #58a6ff;
+        }
+
+        .chat-input::placeholder {
+            color: #6e7681;
+        }
+
+        .send-btn {
+            padding: 10px 20px;
+            background: #58a6ff;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .send-btn:hover {
+            background: #79c0ff;
+            transform: translateY(-1px);
+        }
+
+        .send-btn:active {
+            background: #4184e4;
+            transform: translateY(0);
+        }
+
+        .send-btn:disabled {
+            background: #2d3139;
+            color: #6e7681;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .file-btn {
+            padding: 10px 16px;
+            background: #2d3139;
+            color: #c9d1d9;
+            border: 1px solid #3d4149;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.15s;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Модальное окно для ввода имени */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal-box {
+            background: #22252b;
+            border: 1px solid #2d3139;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-title {
+            font-size: 1.4rem;
+            color: #f0f6fc;
+            margin-bottom: 12px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .modal-subtitle {
+            font-size: 0.85rem;
+            color: #8b949e;
+            margin-bottom: 24px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1a1d23;
+            border: 1px solid #2d3139;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            margin-bottom: 20px;
+        }
+
+        .modal-input:focus {
+            border-color: #58a6ff;
+        }
+
+        .modal-input::placeholder {
+            color: #6e7681;
+        }
+
+        .modal-btn {
+            width: 100%;
+            padding: 12px 20px;
+            background: #58a6ff;
+            color: #0d1117;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.15s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-btn:hover {
+            background: #79c0ff;
+            transform: translateY(-1px);
+        }
+
+        .modal-btn:active {
+            background: #4184e4;
+            transform: translateY(0);
+        }
+
+        .modal-btn:disabled {
+            background: #2d3139;
+            color: #6e7681;
+            cursor: not-allowed;
+            transform: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Левая панель -->
+        <div class="sidebar">
+            <div class="header">
+                <h1>P2P Chat</h1>
+                <div class="status" id="ws-status">
+                    <span class="ws-dot" style="background:#58a6ff"></span>Demo
+                    Mode
+                </div>
+            </div>
+
+            <!-- Информация о себе -->
+            <div class="self-info">
+                <div class="self-info-title">This Node</div>
+                <div class="self-info-grid">
+                    <span class="self-info-label">Name:</span>
+                    <span class="self-info-value" id="me-name">—</span>
+                    <span class="self-info-label">ID:</span>
+                    <span class="self-info-value" id="me-id">—</span>
+                    <span class="self-info-label">IP:Port:</span>
+                    <span class="self-info-value"><span
+                            id="me-ip">—</span>:<span
+                            id="me-port">—</span></span>
+                </div>
+            </div>
+
+            <!-- Поиск -->
+            <div class="search-box">
+                <input type="text" class="search-input" id="search-input"
+                    placeholder="Search peers...">
+            </div>
+
+            <!-- Список пиров -->
+            <div class="peers-list" id="peers-list">
+                <div class="empty-msg">Searching for peers...</div>
+            </div>
+        </div>
+
+        <!-- Правая панель - чат -->
+        <div class="chat-panel" id="chat-panel">
+            <div class="chat-empty">
+                Select a peer to start chatting
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для ввода имени -->
+    <div class="modal-overlay hidden" id="name-modal">
+        <div class="modal-box">
+            <div class="modal-title">Welcome to P2P Chat</div>
+            <div class="modal-subtitle">Please enter your name to continue. This
+                will be visible to other peers in the network.</div>
+            <input type="text" class="modal-input" id="name-input"
+                placeholder="Your name" maxlength="50" autofocus>
+            <button class="modal-btn" id="name-submit">Continue</button>
+        </div>
+    </div>
+
+    <script>
+        let myInfo = null;
+        let peers = [];
+        let selectedPeer = null;
+        let messages = {};
+
+        // Функции для работы с именем пользователя
+        function getUserName() {
+            return localStorage.getItem('p2p_user_name');
+        }
+
+        function setUserName(name) {
+            localStorage.setItem('p2p_user_name', name);
+        }
+
+        function showNameModal() {
+            const modal = document.getElementById('name-modal');
+            const input = document.getElementById('name-input');
+            const submitBtn = document.getElementById('name-submit');
+
+            modal.classList.remove('hidden');
+            input.focus();
+
+            const handleSubmit = () => {
+                const name = input.value.trim();
+                if (name) {
+                    setUserName(name);
+                    modal.classList.add('hidden');
+                    initializeDemo();
+                }
+            };
+
+            submitBtn.onclick = handleSubmit;
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSubmit();
+                }
+            };
+        }
+
+        // Проверка имени при загрузке
+        function checkUserName() {
+            const name = getUserName();
+            if (!name) {
+                showNameModal();
+                return false;
+            }
+            return true;
+        }
+
+        // Инициализация демо
+        function initializeDemo() {
+            const userName = getUserName();
+
+            // Фантомная информация о себе
+            myInfo = {
+                node_id: "a1b2c3d4e5f6",
+                name: userName,
+                ip: "192.168.1.100",
+                port: 8000
+            };
+            document.getElementById("me-id").textContent = myInfo.node_id.substring(0, 12);
+            document.getElementById("me-name").textContent = userName;
+            document.getElementById("me-ip").textContent = myInfo.ip;
+            document.getElementById("me-port").textContent = myInfo.port;
+
+            // Фантомные пиры
+            peers = [
+                {
+                    node_id: "peer001alpha",
+                    name: "Alice's Laptop",
+                    ip: "192.168.1.101",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 2
+                },
+                {
+                    node_id: "peer002beta",
+                    name: "Bob's Desktop",
+                    ip: "192.168.1.102",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 25
+                },
+                {
+                    node_id: "peer003gamma",
+                    name: "Charlie Server",
+                    ip: "192.168.1.103",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 120
+                },
+                {
+                    node_id: "peer004delta",
+                    name: "Dave's Phone",
+                    ip: "192.168.1.104",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 5
+                },
+                {
+                    node_id: "peer005epsilon",
+                    name: "Eve's Tablet",
+                    ip: "192.168.1.105",
+                    port: 8000,
+                    last_seen: Math.floor(Date.now() / 1000) - 3600
+                }
+            ];
+
+            // Фантомные сообщения
+            messages = {
+                "peer001alpha": [
+                    { peer_id: "peer001alpha", content: "Hey! How are you?", timestamp: Date.now() / 1000 - 3600, is_outgoing: false },
+                    { peer_id: "peer001alpha", content: "Hi Alice! I'm doing great, thanks!", timestamp: Date.now() / 1000 - 3500, is_outgoing: true },
+                    { peer_id: "peer001alpha", content: "That's awesome! Want to test this chat?", timestamp: Date.now() / 1000 - 3400, is_outgoing: false },
+                    { peer_id: "peer001alpha", content: "Sure! It looks pretty nice 😊", timestamp: Date.now() / 1000 - 3300, is_outgoing: true }
+                ],
+                "peer002beta": [
+                    { peer_id: "peer002beta", content: "Can you send me the project files?", timestamp: Date.now() / 1000 - 7200, is_outgoing: false },
+                    { peer_id: "peer002beta", content: "Sure thing! I'll send them in a minute", timestamp: Date.now() / 1000 - 7100, is_outgoing: true }
+                ],
+                "peer003gamma": [
+                    { peer_id: "peer003gamma", content: "Server status: All systems operational", timestamp: Date.now() / 1000 - 1800, is_outgoing: false },
+                    { peer_id: "peer003gamma", content: "Thanks for the update!", timestamp: Date.now() / 1000 - 1750, is_outgoing: true },
+                    { peer_id: "peer003gamma", content: "Backup completed successfully", timestamp: Date.now() / 1000 - 900, is_outgoing: false }
+                ]
+            };
+
+            // Отображаем фантомные данные
+            renderPeersList();
+        }
+
+        // При загрузке страницы проверяем имя
+        if (checkUserName()) {
+            initializeDemo();
+        }
+
+        // Экранирование HTML
+        function escapeHtml(str) {
+            const el = document.createElement("span");
+            el.textContent = str;
+            return el.innerHTML;
+        }
+
+        // Форматирование времени
+        function formatTime(ts) {
+            return new Date(ts * 1000).toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // Рендер списка пиров
+        function renderPeersList(filterText = "") {
+            const listEl = document.getElementById("peers-list");
+            const filter = filterText.toLowerCase();
+            const filtered = peers.filter(p =>
+                p.name.toLowerCase().includes(filter) ||
+                p.node_id.toLowerCase().includes(filter)
+            );
+
+            if (!filtered.length) {
+                listEl.innerHTML = '<div class="empty-msg">No peers found</div>';
+                return;
+            }
+
+            let html = "";
+            for (const peer of filtered) {
+                const active = selectedPeer && selectedPeer.node_id === peer.node_id ? "active" : "";
+                html += `
+                    <div class="peer-item ${active}" data-peer-id="${escapeHtml(peer.node_id)}">
+                        <div class="peer-name">
+                            <span class="peer-status-dot"></span>
+                            ${escapeHtml(peer.name)}
+                        </div>
+                        <div class="peer-details">
+                            ${escapeHtml(peer.node_id.substring(0, 12))}
+                        </div>
+                    </div>
+                `;
+            }
+            listEl.innerHTML = html;
+
+            // Обработчики кликов
+            document.querySelectorAll(".peer-item").forEach(el => {
+                el.addEventListener("click", () => {
+                    const peerId = el.getAttribute("data-peer-id");
+                    selectPeer(peerId);
+                });
+            });
+        }
+
+        // Выбор пира
+        function selectPeer(peerId) {
+            selectedPeer = peers.find(p => p.node_id === peerId);
+            if (!selectedPeer) return;
+
+            renderPeersList(document.getElementById("search-input").value);
+            renderChat();
+            loadMessages(peerId);
+        }
+
+        // Рендер окна чата
+        function renderChat() {
+            const panel = document.getElementById("chat-panel");
+            if (!selectedPeer) {
+                panel.innerHTML = '<div class="chat-empty">Select a peer to start chatting</div>';
+                return;
+            }
+
+            panel.innerHTML = `
+                <div class="chat-header">
+                    <div class="chat-header-name">${escapeHtml(selectedPeer.name)}</div>
+                    <div class="chat-header-info">
+                        ${escapeHtml(selectedPeer.node_id)} • ${escapeHtml(selectedPeer.ip)}:${selectedPeer.port}
+                    </div>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="empty-msg">Loading messages...</div>
+                </div>
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <button class="file-btn" title="File sharing (coming soon)" disabled>📎</button>
+                        <textarea class="chat-input" id="chat-input" placeholder="Type a message..." rows="1"></textarea>
+                        <button class="send-btn" id="send-btn">Send</button>
+                    </div>
+                </div>
+            `;
+
+            // Обработчики
+            const input = document.getElementById("chat-input");
+            const sendBtn = document.getElementById("send-btn");
+
+            input.addEventListener("input", () => {
+                input.style.height = "auto";
+                input.style.height = input.scrollHeight + "px";
+            });
+
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            sendBtn.addEventListener("click", sendMessage);
+        }
+
+        // Загрузка сообщений
+        function loadMessages(peerId) {
+            if (!messages[peerId]) {
+                messages[peerId] = [];
+            }
+            renderMessages();
+        }
+
+        // Рендер сообщений
+        function renderMessages() {
+            if (!selectedPeer) return;
+
+            const container = document.getElementById("chat-messages");
+            const peerMessages = messages[selectedPeer.node_id] || [];
+
+            if (!peerMessages.length) {
+                container.innerHTML = '<div class="empty-msg">No messages yet. Start the conversation!</div>';
+                return;
+            }
+
+            let html = "";
+            for (const msg of peerMessages) {
+                const isSent = msg.is_outgoing;
+                const type = isSent ? "sent" : "received";
+                html += `
+                    <div class="message ${type}">
+                        <div class="message-header">${isSent ? "You" : escapeHtml(selectedPeer.name)}</div>
+                        <div class="message-content">${escapeHtml(msg.content)}</div>
+                        <div class="message-time">${formatTime(msg.timestamp)}</div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Отправка сообщения
+        function sendMessage() {
+            if (!selectedPeer) return;
+
+            const input = document.getElementById("chat-input");
+            const content = input.value.trim();
+            if (!content) return;
+
+            // Добавляем сообщение в фантомные данные
+            if (!messages[selectedPeer.node_id]) {
+                messages[selectedPeer.node_id] = [];
+            }
+            messages[selectedPeer.node_id].push({
+                peer_id: selectedPeer.node_id,
+                content: content,
+                timestamp: Date.now() / 1000,
+                is_outgoing: true
+            });
+            input.value = "";
+            input.style.height = "auto";
+            renderMessages();
+        }
+
+        // Поиск
+        document.getElementById("search-input").addEventListener("input", (e) => {
+            renderPeersList(e.target.value);
+        });
+    </script>
+</body>
+
+</html>
