@@ -15,7 +15,8 @@ def add_all_keys(keys: dict[str, str]) -> None:
 
 def is_peer_verified(peer_id: str) -> bool:
     row = database.fetch_one(
-        "SELECT verified FROM keys WHERE peer_id = ?", (peer_id,),
+        "SELECT verified FROM keys WHERE peer_id = ?",
+        (peer_id,),
     )
     return bool(row and row["verified"])
 

@@ -56,7 +56,11 @@ class Crypto:
         )
 
     async def add_peer(
-        self, peer_id: str, public_key: str, *, reset_verified: bool = False,
+        self,
+        peer_id: str,
+        public_key: str,
+        *,
+        reset_verified: bool = False,
     ) -> None:
         self.peers[peer_id] = PublicKey(self._b64d(public_key))
         add_all_keys({peer_id: public_key})

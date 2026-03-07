@@ -199,7 +199,9 @@ async def get_safety_number(peer_id: str) -> dict:
 async def verify_peer(peer_id: str) -> dict:
     """Mark a peer as verified after out-of-band safety number comparison."""
     if peer_id not in crypto.peers:
-        raise HTTPException(status_code=404, detail="No key exchange with this peer")
+        raise HTTPException(
+            status_code=404, detail="No key exchange with this peer"
+        )
     crypto.mark_verified(peer_id)
     return {"peer_id": peer_id, "verified": True}
 
@@ -208,7 +210,9 @@ async def verify_peer(peer_id: str) -> dict:
 async def unverify_peer(peer_id: str) -> dict:
     """Remove verification mark from a peer."""
     if peer_id not in crypto.peers:
-        raise HTTPException(status_code=404, detail="No key exchange with this peer")
+        raise HTTPException(
+            status_code=404, detail="No key exchange with this peer"
+        )
     crypto.mark_verified(peer_id, verified=False)
     return {"peer_id": peer_id, "verified": False}
 
