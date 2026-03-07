@@ -7,3 +7,5 @@ class Type(Enum):
     MESSAGE = "MESSAGE"
     ACK = "ACK"
     ROUTES = "ROUTES"
+    HELLO = "HELLO"
+    PEER_INFO = ""

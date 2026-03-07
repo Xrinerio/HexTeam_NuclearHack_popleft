@@ -4,10 +4,11 @@ import socket
 from typing import Any
 
 from app.core import logger
+from app.protocol import Type
 
 
 async def _handle_message(message: dict[str, Any], server: "Server") -> None:
-    if message.get("type") == "peer_info":
+    if message.get("type") == Type.PEER_INFO:
         peer_id = message.get("peer_id")
         name = message.get("name")
         port = message.get("port")
@@ -32,7 +33,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
         self.server = server
-        self._futures: set[asyncio.Future] = {}
+        self._futures: set[asyncio.Future] = set()
         self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -51,8 +52,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return
 
-        msg_type = pkt.get("type")
-        if msg_type != "hello":
+        if pkt.get("type") != Type.HELLO.value:
             return
 
         sender_id = pkt.get("peer_id")
@@ -60,11 +60,9 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return
 
         name = pkt.get("name", "?")
-        logger.info(
-            f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
-        )
+        logger.info(f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}")
 
-        # Тут начинается логика сохранения информации о пирах  # noqa: RUF003
+        # Тут начинается логика сохранения информации о близжайших пирах  # noqa: RUF003
         # Cтруктура pkt:  # noqa: RUF003
         #
         #     "type": "hello",        тип сообщения
@@ -78,10 +76,10 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             addr=(addr[0], pkt.get("port")),
             data=json.dumps(
                 {
-                    "type": "peer_info",
-                    "peer_id": self.peer_id,
-                    "name": self.name,
-                    "port": self.server.port,
+                    "type": Type.PEER_INFO.value,
+                    "from": self.peer_id,
+                    "tcp_port": self.server.port,
+                    "routes": ...,
                 },
             ),
         )
@@ -346,7 +344,7 @@ class Server:
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
-                await _handle_message(message)
+                await _handle_message(message, self)
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")

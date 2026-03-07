@@ -28,14 +28,15 @@
 }
 ```
 
-## ROUTES
+## PEER_INFO
 
 Обмен маршрутами между соседями.
 
 ```json
 {
-    "type": "ROUTES",
+    "type": "PEER_INFO",
     "from": "<peer_id>",
+    "tcp_port": "<port>",
     "routes": [
         {"destination": "<peer_id>", "hops": 1},
         {"destination": "<peer_id>", "hops": 2}
