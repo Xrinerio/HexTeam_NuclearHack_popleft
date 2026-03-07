@@ -1,4 +1,5 @@
 import base64
+import json
 
 from fastapi import (
     APIRouter,
@@ -13,7 +14,7 @@ from app.crud.messages import get_chat_messages, get_chat_peer_ids, save_message
 from app.crypto.crypto import crypto
 from app.network import routing
 from app.network.ws_manager import ws_manager
-from app.protocol import KeyExchange, Message
+from app.protocol import CallAudio, KeyExchange, Message
 
 router: APIRouter = APIRouter()
 
@@ -184,8 +185,45 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await ws_manager.connect(ws)
     try:
         while True:
-            await ws.receive_text()
+            text = await ws.receive_text()
+            try:
+                msg = json.loads(text)
+                if msg.get("event") == "call_audio":
+                    await _relay_call_audio(ws, msg.get("data", {}))
+            except (json.JSONDecodeError, KeyError):
+                pass
     except WebSocketDisconnect:
         pass
     finally:
         await ws_manager.disconnect(ws)
+
+
+async def _relay_call_audio(ws: WebSocket, data: dict) -> None:
+    """Encrypt browser audio and send to peer via TCP."""
+    server = ws.app.state.server
+    peer_id = data.get("peer_id", "")
+    call_id = data.get("call_id", "")
+    audio_b64 = data.get("audio", "")
+
+    if not peer_id or not call_id or not audio_b64:
+        return
+    if call_id not in server.active_calls:
+        return
+    if peer_id not in crypto.peers:
+        return
+
+    try:
+        audio_bytes = base64.b64decode(audio_b64)
+        encrypted = await crypto.encrypt_message_to(audio_bytes, peer_id)
+        payload_b64 = base64.b64encode(encrypted).decode()
+    except Exception:  # noqa: BLE001
+        return
+
+    pkt = CallAudio(
+        from_=server.peer_id,
+        to=peer_id,
+        call_id=call_id,
+        seq=data.get("seq", 0),
+        payload=payload_b64,
+    )
+    await server.send_to_peer(peer_id, pkt.to_bytes())

@@ -14,3 +14,7 @@ class Type(Enum):
     FILE_ACK = "FILE_ACK"
     PING = "PING"
     PONG = "PONG"
+    CALL_OFFER = "CALL_OFFER"
+    CALL_ANSWER = "CALL_ANSWER"
+    CALL_END = "CALL_END"
+    CALL_AUDIO = "CALL_AUDIO"
