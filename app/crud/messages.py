@@ -70,3 +70,15 @@ def get_chat_messages(peer_id: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def get_chat_peer_ids() -> list[str]:
+    """Return distinct peer_ids that have message history."""
+    rows = database.fetch_all(
+        "SELECT DISTINCT peer_id FROM ("
+        "  SELECT from_peer_id AS peer_id FROM messages WHERE is_outgoing = 0 "
+        "  UNION "
+        "  SELECT to_peer_id AS peer_id FROM messages WHERE is_outgoing = 1"
+        ")",
+    )
+    return [r["peer_id"] for r in rows]
