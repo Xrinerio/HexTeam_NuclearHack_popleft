@@ -1,33 +1,118 @@
 import asyncio
+import base64
 import json
 import socket
 from typing import Any
 
 from app.core import logger
+from app.crypto.crypto import crypto
 from app.network import routing
-from app.protocol import Type
+from app.protocol import KeyExchange, Type
 
 
-def _handle_message(server: "Server", message: dict[str, Any], ip: str) -> None:
-    logger.info("_handling...")
-    if message.get("type") == Type.PEER_INFO.value:
-        peer_id = message.get("peer_id")
-        name = message.get("name")
-        port = message.get("port")
-        logger.info(
-            f"Received peer_info: peer_id={peer_id}, name={name}, port={port}",
+def _our_public_key_b64() -> str:
+    return base64.b64encode(bytes(crypto.public_key)).decode()  # type: ignore[arg-type]
+
+
+async def _handle_peer_info(
+    server: "Server", message: dict, addr: tuple
+) -> None:
+    peer_id = message.get("peer_id")
+    name = message.get("name", "?")
+    port = message.get("port", 0)
+    ip = addr[0]
+
+    routing.add_neighbor(destination=peer_id, name=name, ip=ip, port=port)
+    routes = message.get("routes")
+    if routes is not None:
+        routing.update_from_advertisement(
+            gateway=peer_id,
+            gateway_ip=ip,
+            gateway_port=port,
+            routes=routes,
         )
-        routing.add_neighbor(destination=peer_id, name=name, ip=ip)
-        routes = message.get("routes")
-        if routes is not None:
-            routing.update_from_advertisement(
-                gateway=peer_id,
-                gateway_ip=ip,
-                routes=routes,
+    logger.info(routing)
+
+    if peer_id not in crypto.peers and crypto.public_key is not None:
+        kex = KeyExchange(
+            from_=server.peer_id,
+            to=peer_id,
+            public_key=_our_public_key_b64(),
+        )
+        await server.send(addr=addr, data=kex.to_bytes(), peer_id=peer_id)
+        logger.info(f"[Crypto] KEY_EXCHANGE sent to {peer_id}")
+
+
+async def _handle_key_exchange(server: "Server", message: dict) -> None:
+    from_id = message.get("from")
+    to_id = message.get("to")
+    public_key_b64 = message.get("public_key", "")
+    ttl = message.get("ttl", 0)
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(to_id, json.dumps(message).encode())
+        return
+
+    first_contact = from_id not in crypto.peers
+    await crypto.add_peer(from_id, public_key_b64)
+    logger.info(f"[Crypto] Stored public key of {from_id}")
+
+    if first_contact and crypto.public_key is not None:
+        kex = KeyExchange(
+            from_=server.peer_id,
+            to=from_id,
+            public_key=_our_public_key_b64(),
+        )
+        await server.send_to_peer(from_id, kex.to_bytes())
+        logger.info(f"[Crypto] KEY_EXCHANGE response sent to {from_id}")
+
+
+async def _handle_message_packet(server: "Server", message: dict) -> None:
+    from_id = message.get("from")
+    to_id = message.get("to")
+    ttl = message.get("ttl", 0)
+    payload: str = message.get("payload", "")
+
+    if to_id != server.peer_id:
+        if ttl > 0:
+            message["ttl"] = ttl - 1
+            await server.send_to_peer(to_id, json.dumps(message).encode())
+        else:
+            logger.warning(f"[MSG] TTL=0, dropping id={message.get('id')}")
+        return
+
+    if from_id in crypto.peers:
+        try:
+            decrypted = await crypto.decrypt_message_from(
+                base64.b64decode(payload.encode()),
+                from_id,
             )
-        logger.info(routing)
-    # Сервер передается если нужно будет отправить что то в ответ методом Server.send
-    # Здесь логика обработки входящих сообщений от других нод (tcp)
+            payload = decrypted.decode("utf-8")
+            logger.info(f"[Crypto] Decrypted from {from_id}: {payload}")
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                f"[Crypto] Decrypt failed from {from_id}, treating as plaintext"
+            )
+    else:
+        logger.info(f"[MSG] Plaintext from {from_id}: {payload}")
+    # deliver to chat (store in DB, push to WebSocket etc.)
+
+
+async def _handle_message(
+    server: "Server",
+    message: dict[str, Any],
+    addr: tuple,
+) -> None:
+    msg_type = message.get("type")
+
+    if msg_type == Type.PEER_INFO.value:
+        await _handle_peer_info(server, message, addr)
+    elif msg_type == Type.KEY_EXCHANGE.value:
+        await _handle_key_exchange(server, message)
+    elif msg_type == Type.MESSAGE.value:
+        await _handle_message_packet(server, message)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -338,6 +423,16 @@ class Server:
         await writer.drain()
         self._last_active[addr] = asyncio.get_event_loop().time()
 
+    async def send_to_peer(self, peer_id: str, data: str | bytes) -> None:
+        """Отправить данные пиру через таблицу маршрутизации."""
+        addr = routing.get_next_hop_addr(peer_id)
+        if addr is None:
+            logger.warning(f"[TCP] Нет маршрута до {peer_id}")
+            return
+        route = routing.get_route(peer_id)
+        gateway_id = route.gateway if route else peer_id
+        await self.send(addr=addr, data=data, peer_id=gateway_id)
+
     async def handle_request(
         self,
         reader: asyncio.StreamReader,
@@ -363,7 +458,7 @@ class Server:
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
-                _handle_message(self, message, ip=addr[0])
+                await _handle_message(self, message, addr=addr)
 
         except (ConnectionResetError, ConnectionAbortedError):
             logger.warning(f"[TCP] [{addr}] Connection forcibly closed")

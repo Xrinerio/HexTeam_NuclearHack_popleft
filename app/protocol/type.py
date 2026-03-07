@@ -9,3 +9,4 @@ class Type(Enum):
     ROUTES = "ROUTES"
     HELLO = "HELLO"
     PEER_INFO = "PEER_INFO"
+    KEY_EXCHANGE = "KEY_EXCHANGE"

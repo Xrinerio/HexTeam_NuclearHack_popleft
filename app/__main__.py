@@ -27,6 +27,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await crypto.initialize()
     database.initialize_tables()
     await server.start_server()
+    app.state.server = server
     yield
     await server.stop_server()
     await crypto.write_peers()

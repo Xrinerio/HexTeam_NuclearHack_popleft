@@ -14,7 +14,9 @@ class _Route:
     gateway: str
     """peer_id выхода до цели."""
     ip: str | None
-    """IP адрес, если это физический сосед."""
+    """IP адрес gateway (физического соседа)."""
+    port: int
+    """TCP-порт gateway."""
     hops: int
     """Метрика достижения цели."""
 
@@ -31,6 +33,7 @@ class Routing:
         name: str,
         gateway: str,
         ip: str | None,
+        port: int = 0,
         hops: int,
     ) -> None:
         """Добавить или обновить маршрут."""
@@ -43,19 +46,38 @@ class Routing:
                 name=name,
                 gateway=gateway,
                 ip=ip,
+                port=port,
                 hops=hops,
             )
 
-    def add_neighbor(self, *, destination: str, name: str, ip: str) -> None:
-        """Добавить соседа."""
-        logger.info(f"Добавлен сосед {destination}")
+    def add_neighbor(
+        self, *, destination: str, name: str, ip: str, port: int
+    ) -> None:
+        """Добавить прямого соседа (hops=1)."""
+        logger.info(f"Добавлен сосед {destination} ({ip}:{port})")
         self._table[destination] = _Route(
             destination=destination,
             name=name,
             gateway=destination,
             ip=ip,
+            port=port,
             hops=1,
         )
+
+    def get_next_hop_addr(self, destination: str, /) -> tuple[str, int] | None:
+        """Вернуть (ip, port) следующего хопа для отправки пакета до destination."""
+        route = self.get_route(destination)
+        if route is None:
+            return None
+        # gateway — всегда прямой сосед
+        gateway_route = self._table.get(route.gateway)
+        if (
+            gateway_route is None
+            or not gateway_route.ip
+            or not gateway_route.port
+        ):
+            return None
+        return gateway_route.ip, gateway_route.port
 
     def get_route(self, destination: str, /) -> _Route | None:
         """Вернуть лучший маршрут до узла или None если недостижим."""
@@ -91,9 +113,10 @@ class Routing:
         *,
         gateway: str,
         gateway_ip: str,
+        gateway_port: int,
         routes: list[dict],
     ) -> None:
-        """Обновить таблицу маршрутов по списку из PEER_INFO."""
+        """Обновить таблицу маршрутов по списку из PEER_INFO (Bellman-Ford)."""
         for entry in routes:
             dest: str | None = entry.get("destination")
             name: str = entry.get("name", "?")
@@ -114,6 +137,7 @@ class Routing:
                     name=name,
                     gateway=gateway,
                     ip=gateway_ip,
+                    port=gateway_port,
                     hops=new_hops,
                 )
 
