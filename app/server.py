@@ -79,7 +79,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
                     "type": Type.PEER_INFO.value,
                     "from": self.peer_id,
                     "tcp_port": self.server.port,
-                    "routes": ...,
+                    "routes": [],
                 },
             ),
         )
@@ -218,7 +218,7 @@ class Server:
         """Периодически рассылает UDP hello через каждый сетевой интерфейс."""
         pkt = json.dumps(
             {
-                "type": "hello",
+                "type": "HELLO",
                 "peer_id": self.peer_id,
                 "name": socket.gethostname(),
                 "port": self.port,
