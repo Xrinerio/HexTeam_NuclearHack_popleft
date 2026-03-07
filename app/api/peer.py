@@ -1,12 +1,13 @@
 import base64
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core import logger
 from app.crypto.crypto import crypto
 from app.network import routing
-from app.protocol import Message
+from app.protocol import KeyExchange, Message
 
 router: APIRouter = APIRouter()
 
@@ -33,9 +34,26 @@ async def send_message(body: SendMessageRequest, request: Request) -> dict:
 
     payload = body.payload
     if body.to not in crypto.peers:
-        raise HTTPException(
-            status_code=503,
-            detail=f"No encryption key for peer {body.to!r}. Key exchange in progress.",
+        if (
+            routing.get_route(body.to) is not None
+            and server.peer_id
+            and crypto.public_key is not None
+        ):
+            kex = KeyExchange(
+                from_=server.peer_id,
+                to=body.to,
+                public_key=base64.b64encode(bytes(crypto.public_key)).decode(),  # type: ignore[arg-type]
+            )
+            await server.send_to_peer(body.to, kex.to_bytes())
+            logger.info(f"[API] KEY_EXCHANGE initiated to {body.to}")
+        return JSONResponse(
+            status_code=202,
+            content={
+                "detail": (
+                    f"No encryption key for peer {body.to!r}."
+                    " Key exchange initiated, retry shortly."
+                ),
+            },
         )
 
     raw = await crypto.encrypt_message_to(payload.encode(), body.to)
@@ -50,5 +68,4 @@ async def send_message(body: SendMessageRequest, request: Request) -> dict:
     )
     await server.send_to_peer(body.to, msg.to_bytes())
     logger.info(f"[API] MESSAGE sent: id={msg.id} to={body.to}")
-    return {"id": msg.id, "to": body.to, "encrypted": True}
     return {"id": msg.id, "to": body.to, "encrypted": True}
