@@ -107,6 +107,7 @@ class Routing:
 
             current = self._table.get(dest)
             if current is None or new_hops < current.hops:
+                logger.info(f"Обновлён маршрут до {dest}")
                 self._table[dest] = _Route(
                     destination=dest,
                     name=name,
