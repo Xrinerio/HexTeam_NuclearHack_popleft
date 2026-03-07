@@ -38,7 +38,7 @@ UDP discovery на `50000`.
 └──────────────────────┬──────────────────────────────┘
                        │ WebSocket
 ┌──────────────────────▼──────────────────────────────┐
-│              FastAPI HTTP/WS Server (:8001)         │
+│              FastAPI HTTP/WS Server (:80)           │
 │  ┌──────┐ ┌────────┐ ┌───────┐ ┌──────┐ ┌────────┐  │
 │  │ auth │ │messages│ │ files │ │ call │ │  ping  │  │
 │  └──────┘ └────────┘ └───────┘ └──────┘ └────────┘  │
@@ -64,13 +64,13 @@ UDP discovery на `50000`.
 
 ### Стек
 
-| Компонент   | Технология                       |
-| ----------- | -------------------------------- |
-| Backend     | FastAPI + Uvicorn (async Python) |
-| Шифрование  | PyNaCl (libsodium)               |
-| База данных | SQLite3                          |
-| Сеть        | TCP + UDP + WebSocket            |
-| Frontend    | HTML + CSS + JavaScript          |
+| Компонент   | Технология                             |
+| ----------- | --------------------------------       |
+| Backend     | FastAPI + Uvicorn + asyncio tcp server |
+| Шифрование  | PyNaCl (libsodium)                     |
+| База данных | SQLite3                                |
+| Сеть        | TCP + UDP + WebSocket                  |
+| Frontend    | HTML + CSS + JavaScript                |
 
 ### Шифрование (E2E)
 
@@ -95,7 +95,7 @@ safety number для защиты от MITM.
 ## Транспорт
 
 ### UDP Discovery (порт 50000)
-Периодический broadcast `HELLO`-пакетов на `255.255.255.255` каждые 3 секунды:
+Периодический broadcast `HELLO`-пакетов на `255.255.255.255`:
 ```json
 {"type": "HELLO", "peer_id": "...", "name": "alice", "port": 6767}
 ```
