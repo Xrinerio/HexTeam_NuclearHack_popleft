@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 
 
@@ -10,7 +11,9 @@ class Settings:
     PORT: int = 6767
     HOST: str = "0.0.0.0"
     # Uvicorn settings
-    UVICORN_HOST: str = "127.0.0.1"
+    UVICORN_HOST: str = field(
+        default_factory=lambda: os.environ.get("UVICORN_HOST", "127.0.0.1"),
+    )
     UVICORN_PORT: int = 8001
     # Время в секундах, после которого неактивный пир считается offline и удаляется из списка пиров.
     IDLE_TIMEOUT: float = 20.0
