@@ -554,6 +554,7 @@
         let myInfo = null;
         let peers = [];       // live peers from routing
         let chatPeers = [];   // merged: live + peers with message history
+        let contactNames = {}; // peer_id -> name (persisted from DB)
         let selectedPeer = null;
         let messages = {};
         let ws = null;
@@ -704,10 +705,13 @@
             try {
                 const res = await fetch("/api/chats");
                 if (!res.ok) return;
-                const peerIds = await res.json();
-                await Promise.all(peerIds.map(async (peerId) => {
-                    const r = await fetch(`/api/messages/${peerId}`);
-                    if (r.ok) messages[peerId] = await r.json();
+                const chats = await res.json();
+                for (const chat of chats) {
+                    contactNames[chat.peer_id] = chat.name;
+                }
+                await Promise.all(chats.map(async (chat) => {
+                    const r = await fetch(`/api/messages/${chat.peer_id}`);
+                    if (r.ok) messages[chat.peer_id] = await r.json();
                 }));
                 rebuildChatPeers();
                 renderPeersList(document.getElementById("search-input").value);
@@ -746,7 +750,7 @@
                 if (!map[peerId] && messages[peerId].length > 0) {
                     map[peerId] = {
                         node_id: peerId,
-                        name: peerId.slice(0, 8),
+                        name: contactNames[peerId] || peerId.slice(0, 8),
                         ip: '—',
                         port: 0,
                         hops: 0,

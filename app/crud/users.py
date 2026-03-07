@@ -35,6 +35,14 @@ def username_exists(username: str) -> bool:
     )
 
 
+def save_peer_name(peer_id: str, name: str) -> None:
+    """Сохранить имя удалённого пира в таблице users."""
+    database.execute(
+        "INSERT OR IGNORE INTO users (peer_id, username) VALUES (?, ?)",
+        (peer_id, name),
+    )
+
+
 def get_current_user() -> sqlite3.Row | None:
     """Возвращает единственного локально зарегистрированного пользователя."""
     return database.fetch_one(

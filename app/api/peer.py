@@ -163,8 +163,8 @@ async def get_messages(peer_id: str) -> list[dict]:
 
 
 @router.get("/chats")
-async def get_chats() -> list[str]:
-    """Return peer_ids that have message history."""
+async def get_chats() -> list[dict]:
+    """Return peer_ids with names that have message history."""
     return get_chat_peer_ids()
 
 

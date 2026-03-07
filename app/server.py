@@ -26,6 +26,13 @@ async def _handle_peer_info(
     ip = addr[0]
 
     routing.add_neighbor(destination=peer_id, name=name, ip=ip, port=port)
+
+    # Persist peer name in users table
+    from app.crud.users import save_peer_name
+
+    if peer_id and name:
+        save_peer_name(peer_id, name)
+
     routes = message.get("routes")
     if routes is not None:
         routing.update_from_advertisement(
@@ -138,7 +145,8 @@ async def _handle_ack(server: "Server", message: dict) -> None:
     # Mark message as delivered in DB and notify frontend
     if mark_delivered(message_id):
         await ws_manager.broadcast(
-            "message_delivered", {"message_id": message_id}
+            "message_delivered",
+            {"message_id": message_id},
         )
 
 
