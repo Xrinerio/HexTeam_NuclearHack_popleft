@@ -1003,7 +1003,7 @@
             const pingInfo = pingResults[selectedPeer.node_id];
             const pingText = pingInfo ? `${pingInfo.rtt_ms} ms` : '';
             const pingBtnHtml = selectedPeer.online
-                ? `<span class="chat-header-ping">${pingText ? '🏓 ' + escapeHtml(pingText) : ''}<button class="ping-btn" id="chat-ping-btn">Ping</button></span>`
+                ? `<span class="chat-header-ping">${pingText ? '' + escapeHtml(pingText) : ''}<button class="ping-btn" id="chat-ping-btn">Ping</button></span>`
                 : '';
 
             panel.innerHTML = `
