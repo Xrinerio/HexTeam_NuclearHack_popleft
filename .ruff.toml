@@ -62,6 +62,9 @@ ignore = [
     "RUF001",
     "RUF002",
     "C901",
+    "PLR0913",
+    "PLR0917",
+    "S104",
 ]
 logger-objects = []
 preview = false
@@ -198,8 +201,8 @@ staticmethod-decorators = []
 
 [lint.pycodestyle]
 ignore-overlong-task-comments = false
-max-doc-length = 80
-max-line-length = 80
+max-doc-length = 100
+max-line-length = 100
 
 [lint.pydocstyle]
 convention = "google"

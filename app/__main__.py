@@ -45,5 +45,5 @@ if __name__ == "__main__":
         host=Settings.UVICORN_HOST,
         port=Settings.UVICORN_PORT,
         reload=False,
-        log_level=10,
+        log_level=20,
     )
