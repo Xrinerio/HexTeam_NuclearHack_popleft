@@ -18,6 +18,8 @@ class Database:
             schema = schema_file.read_text(encoding="utf-8")
             self.create_tables(schema)
 
+        self._run_migrations()
+
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(self.db_path)
@@ -56,6 +58,14 @@ class Database:
     def create_tables(self, schema: str) -> None:
         with self.get_connection() as conn:
             conn.executescript(schema)
+
+    def _run_migrations(self) -> None:
+        """Apply lightweight schema migrations."""
+        columns = {r[1] for r in self.fetch_all("PRAGMA table_info(messages)")}
+        if "retry_count" not in columns:
+            self.execute(
+                "ALTER TABLE messages ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+            )
 
 
 database = Database(db_path="Database.sqlite3")

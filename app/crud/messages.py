@@ -87,7 +87,7 @@ def get_chat_peer_ids() -> list[dict]:
 def get_undelivered_outgoing() -> list[dict]:
     """Return outgoing messages that have not been acknowledged yet."""
     rows = database.fetch_all(
-        "SELECT message_id, from_peer_id, to_peer_id, content, created_at "
+        "SELECT message_id, from_peer_id, to_peer_id, content, retry_count, created_at "
         "FROM messages "
         "WHERE is_outgoing = 1 AND delivered = 0 "
         "ORDER BY created_at ASC",
@@ -98,7 +98,38 @@ def get_undelivered_outgoing() -> list[dict]:
             "from_peer_id": r["from_peer_id"],
             "to_peer_id": r["to_peer_id"],
             "content": r["content"],
+            "retry_count": r["retry_count"],
             "created_at": r["created_at"],
         }
         for r in rows
     ]
+
+
+def increment_retry_count(message_id: str) -> None:
+    """Increment the retry counter for a message."""
+    database.execute(
+        "UPDATE messages SET retry_count = retry_count + 1 WHERE message_id = ?",
+        (message_id,),
+    )
+
+
+def delete_expired_undelivered(*, ttl: int, max_retries: int) -> int:
+    """Delete undelivered outgoing messages that exceeded TTL or max retries."""
+    from app.core.utils import now
+
+    cutoff = now() - ttl
+    row = database.fetch_one(
+        "SELECT COUNT(*) AS cnt FROM messages "
+        "WHERE is_outgoing = 1 AND delivered = 0 "
+        "AND (created_at < ? OR retry_count >= ?)",
+        (cutoff, max_retries),
+    )
+    count = row["cnt"] if row else 0
+    if count:
+        database.execute(
+            "DELETE FROM messages "
+            "WHERE is_outgoing = 1 AND delivered = 0 "
+            "AND (created_at < ? OR retry_count >= ?)",
+            (cutoff, max_retries),
+        )
+    return count
