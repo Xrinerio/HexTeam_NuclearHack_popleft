@@ -6,8 +6,16 @@ from typing import Any
 from app.core import logger
 
 
-async def _handle_message(message: str) -> None:
-    pass
+async def _handle_message(message: dict[str, Any], server: "Server") -> None:
+    if message.get("type") == "peer_info":
+        peer_id = message.get("peer_id")
+        name = message.get("name")
+        port = message.get("port")
+        logger.info(
+            f"Received peer_info: peer_id={peer_id}, name={name}, port={port}",
+        )
+    # Сервер передается если нужно будет отправить что то в ответ методом Server.send
+    # Здесь логика обработки входящих сообщений от других нод (tcp)
 
 
 class UDPBroadcastProtocol(asyncio.DatagramProtocol):
@@ -24,7 +32,7 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         self.discovery_interval = discovery_interval
         self.discovery_port = discovery_port
         self.server = server
-
+        self._futures: set[asyncio.Future] = {}
         self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -34,6 +42,10 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
         )
 
     def datagram_received(self, data: bytes, addr: tuple) -> None:
+        future = asyncio.ensure_future(self._handle_datagram(data, addr))
+        self._futures.add(future)
+
+    async def _handle_datagram(self, data: bytes, addr: tuple) -> None:
         try:
             pkt = json.loads(data)
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -48,20 +60,36 @@ class UDPBroadcastProtocol(asyncio.DatagramProtocol):
             return
 
         name = pkt.get("name", "?")
-        tcp_port = pkt.get("port")
         logger.info(
             f"[UDP] Broadcast from {addr}: peer_id={sender_id}, name={name}",
         )
 
-        self.server.peers[addr[0], tcp_port] = {
-            "peer_id": sender_id,
-            "name": name,
-        }
+        # Тут начинается логика сохранения информации о пирах  # noqa: RUF003
+        # Cтруктура pkt:  # noqa: RUF003
+        #
+        #     "type": "hello",        тип сообщения
+        #     "peer_id": sender_id,   uuid пира
+        #     "name": name,           hostname пира
+        #     "port": tcp_port,       tcp порт пира
+        #
 
-    def error_received(self, exc: Exception) -> None:
+        # Здесь сервер отправляет информацию о пирах по tcp в ответ на udp broadcast. # noqa: RUF003
+        await self.server.send(
+            addr=(addr[0], pkt.get("port")),
+            data=json.dumps(
+                {
+                    "type": "peer_info",
+                    "peer_id": self.peer_id,
+                    "name": self.name,
+                    "port": self.server.port,
+                },
+            ),
+        )
+
+    def error_received(self, exc: Exception) -> None:  # noqa: PLR6301
         logger.error(f"[UDP] Error: {exc}")
 
-    def connection_lost(self, _: Exception | None) -> None:
+    def connection_lost(self, _: Exception | None) -> None:  # noqa: PLR6301
         logger.info("[UDP] Broadcast listener stopped")
 
 
@@ -71,9 +99,9 @@ class Server:
         host: str,
         port: int,
         peer_id: str,
-        discovery_interval: float,
-        discovery_port: int,
-        idle_timeout: float,
+        discovery_interval: float = 2.0,
+        discovery_port: int = 50000,
+        idle_timeout: float = 20.0,
         broadcast_addr: str = "255.255.255.255",
     ) -> None:
         self.host = host
@@ -87,11 +115,10 @@ class Server:
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._clients: dict[tuple, asyncio.StreamWriter] = {}
         self._last_active: dict[tuple, float] = {}
-        self.peers: dict[tuple, dict] = {}
         self._tasks: list[asyncio.Task] = []
 
     async def start_server(self) -> None:
-        logger.info(
+        logger.debug(
             f"[Server] Starting TCP server on {self.host}:{self.port}...",
         )
         try:
@@ -177,7 +204,7 @@ class Server:
 
     @staticmethod
     def _get_local_ips() -> list[str]:
-        """Возвращает все локальные не-loopback IPv4 адреса."""
+        """Возвращает все локальные не-loopback IPv4 адреса."""  # noqa: DOC201
         ips: set[str] = set()
         for info in socket.getaddrinfo(
             socket.gethostname(),
@@ -204,7 +231,6 @@ class Server:
         socks: list[socket.socket] = []
         try:
             while True:
-                # пересоздаём сокеты каждый цикл — интерфейсы могут меняться
                 for s in socks:
                     s.close()
                 socks.clear()
@@ -225,7 +251,7 @@ class Server:
                             1,
                         )
                         sock.bind((local_ip, 0))
-                        sock.setblocking(False)
+                        sock.setblocking(False)  # noqa: FBT003
                         socks.append(sock)
 
                         await loop.sock_sendto(
@@ -249,7 +275,7 @@ class Server:
             logger.debug("[UDP] Broadcast sockets closed")
 
     async def _connect(self, addr: tuple) -> asyncio.StreamWriter | None:
-        """Открыть TCP-соединение к addr по требованию."""
+        """Открыть TCP-соединение к addr по требованию."""  # noqa: DOC201
         logger.info(f"[TCP] Connecting to {addr}...")
         try:
             reader, writer = await asyncio.open_connection(*addr)
@@ -258,10 +284,7 @@ class Server:
             task = asyncio.create_task(self.handle_request(reader, writer))
             self._tasks.append(task)
             logger.info(
-                (
-                    f"[TCP] Connected to {addr}"
-                    f"(total clients: {len(self._clients)})"
-                ),
+                f"[TCP] Connected to {addr} (total clients: {len(self._clients)})",
             )
         except OSError as e:
             logger.error(f"[TCP] Failed to connect to {addr}: {e}")
@@ -271,15 +294,6 @@ class Server:
 
     async def _idle_cleanup_loop(self) -> None:
         """Закрывает TCP-соединения, простаивающие дольше idle_timeout."""
-        logger.debug(
-            (
-                (
-                    "[TCP] _idle_cleanup_loop started"
-                    f"(timeout={self.idle_timeout}s,"
-                    f"interval={self.idle_timeout / 2}s)"
-                ),
-            ),
-        )
         try:
             while True:
                 await asyncio.sleep(self.idle_timeout / 2)
@@ -287,12 +301,6 @@ class Server:
                 for addr in list(self._clients):
                     idle = now - self._last_active.get(addr, now)
                     if idle > self.idle_timeout:
-                        logger.info(
-                            (
-                                f"[TCP] Closing idle connection to {addr}"
-                                f"(idle {idle:.1f}s)"
-                            ),
-                        )
                         writer = self._clients.pop(addr, None)
                         self._last_active.pop(addr, None)
                         if writer and not writer.is_closing():
@@ -332,11 +340,9 @@ class Server:
                 self._last_active[addr] = asyncio.get_event_loop().time()
 
                 try:
-                    message = data.decode("utf-8").strip()
-                except UnicodeDecodeError:
-                    logger.warning(
-                        f"[TCP] [{addr}] Invalid UTF-8 data received",
-                    )
+                    message = json.loads(data.decode("utf-8").strip())
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    logger.warning(f"[TCP] [{addr}] Invalid data received")
                     continue
 
                 logger.info(f"[TCP] [{addr}] >> {message}")
